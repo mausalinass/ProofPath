@@ -1,0 +1,21 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node / React
+node_modules/
+dist/
+
+# .NET
+bin/
+obj/
+
+# IDE / OS
+.vscode/
+.vs/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
