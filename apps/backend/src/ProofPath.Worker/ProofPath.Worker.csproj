@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-ProofPath.Worker-774d87bc-980b-4691-ab98-b56e15bac757</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProofPath.Application\ProofPath.Application.csproj" />
+    <ProjectReference Include="..\ProofPath.Infrastructure\ProofPath.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
