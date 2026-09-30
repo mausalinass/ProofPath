@@ -33,4 +33,40 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: proofpath_e2e
+          POSTGRES_PASSWORD: isolated-e2e-only
+          POSTGRES_DB: proofpath_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U proofpath_e2e -d proofpath_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PROOFPATH_E2E_CONNECTION: Host=127.0.0.1;Port=5432;Database=proofpath_e2e;Username=proofpath_e2e;Password=isolated-e2e-only
+      PROOFPATH_E2E_STORAGE: /tmp/proofpath-e2e-private
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm exec playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm exec playwright test
+        working-directory: apps/web

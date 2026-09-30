@@ -1,0 +1,19 @@
+.resume-workspace { margin-top: 30px; }
+.resume-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 22px; align-items: start; }
+.resume-versions { padding: 18px; }
+.version-button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; margin: 10px 0; padding: 12px; text-align: left; overflow-wrap: anywhere; }
+.version-button[aria-pressed=true] { background: #eef0fe; border-color: #7478df; }
+.version-button span, .version-button small { font-weight: normal; font-size: 12px; }
+.resume-title { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.resume-policy { margin-top: 16px; margin-bottom: 0; }
+.resume-workspace h3 { margin: 0 0 15px; font-size: 20px; }
+.resume-workspace fieldset { border: 0; padding: 0; margin: 28px 0; min-width: 0; }
+.resume-workspace legend { font-weight: 650; padding: 0; margin-bottom: 14px; }
+.fact-card { padding: 18px; margin-bottom: 18px; border: 1px solid #e0e5ef; border-radius: 9px; }
+.resume-workspace select { font: inherit; background: white; color: #1c2540; border: 1px solid #d8deeb; border-radius: 7px; padding: 11px; width: 100%; }
+.source-citation { border-left: 3px solid #d4d8f2; padding: 0 0 0 14px; margin: 12px 0 18px; }
+.source-citation summary { cursor: pointer; color: #505ac4; margin-bottom: 12px; }
+.source-citation blockquote { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; max-height: 250px; overflow: auto; }
+.confirm-check { display: flex; flex-direction: row; align-items: flex-start; margin: 24px 0 16px; }
+.confirm-check input { width: 20px; min-width: 20px; margin-top: 5px; }
+@media (max-width: 980px) { .resume-layout { grid-template-columns: 1fr; } .resume-versions { display: flex; gap: 10px; flex-wrap: wrap; } .resume-versions h3 { width: 100%; } .version-button { width: auto; max-width: 100%; } }

@@ -1,0 +1,21 @@
+import { test, expect } from '@playwright/test'
+test('candidate can sign up, edit profile, return after logout, and delete their account', async ({ page }) => {
+  const email = `sprint1-${Date.now()}@example.test`; const password = 'Browser-only.P4ssword!'
+  await page.goto('/signup')
+  await page.getByLabel('First name').fill('Ada'); await page.getByLabel('Email', { exact: true }).fill(email)
+  await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome, Ada.' })).toBeVisible()
+  await page.getByRole('link', { name: 'My Evidence', exact: true }).click()
+  await page.getByLabel('Headline').fill('Software engineer'); await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Profile saved' })).toBeVisible()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await page.getByLabel('Email', { exact: true }).fill(email); await page.getByLabel('Password', { exact: true }).fill(password)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('link', { name: 'My Evidence', exact: true }).click()
+  await expect(page.getByLabel('Headline')).toHaveValue('Software engineer')
+  await page.getByRole('link', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete my account' }).click()
+  await page.getByLabel('Current password').fill(password)
+  await page.getByRole('button', { name: 'Permanently delete account' }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible()
+})
