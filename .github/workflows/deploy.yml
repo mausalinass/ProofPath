@@ -62,7 +62,7 @@ jobs:
       - name: Apply database migrations
         run: pwsh ./scripts/run-production-migration.ps1
         env: { AWS_STACK_NAME: proofpath-production, PROOFPATH_MIGRATION_NETWORK: "${{ vars.PROOFPATH_MIGRATION_NETWORK }}" }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - name: Build and publish static site
         run: |
