@@ -90,7 +90,7 @@ Resources:
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
       PubliclyAccessible: false
-      BackupRetentionPeriod: 7
+      BackupRetentionPeriod: 1
       AutoMinorVersionUpgrade: true
       DeletionProtection: false
       MultiAZ: false
