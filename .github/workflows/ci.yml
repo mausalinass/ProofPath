@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with: { dotnet-version: '10.0.x' }
       - run: dotnet restore apps/backend/ProofPath.slnx
       - run: dotnet build apps/backend/ProofPath.slnx --no-restore
@@ -51,7 +51,7 @@ jobs:
       PROOFPATH_E2E_STORAGE: /tmp/proofpath-e2e-private
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with: { dotnet-version: '10.0.x' }
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with: { dotnet-version: '10.0.x' }
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
