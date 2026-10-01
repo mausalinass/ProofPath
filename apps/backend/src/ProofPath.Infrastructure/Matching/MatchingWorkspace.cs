@@ -37,28 +37,46 @@ public sealed class MatchingWorkspace(ProofPathDbContext database) : IMatchingWo
         var draft = MatchingEngine.Calculate(candidateSnapshot, requirementSnapshot, MatchingConfiguration.V1);
         var result = new MatchResult
         {
-            Id = Guid.NewGuid(), CandidateProfileId = job.CandidateProfileId, JobId = job.Id,
-            RequirementSetId = requirementSet.Id, ScoringVersionId = draft.ScoringVersion,
-            CandidateSnapshotJson = Serialize(candidateSnapshot), RequirementSnapshotJson = Serialize(requirementSnapshot),
-            ResultJson = Serialize(draft), OverallScore = draft.OverallScore is null ? null : (decimal)draft.OverallScore,
-            OverallClassification = draft.Classification?.ToString(), OverallStatus = draft.Status.ToString(),
-            OverallConfidence = (decimal)draft.OverallConfidence, EvaluationCoverage = (decimal)draft.EvaluationCoverage,
+            Id = Guid.NewGuid(),
+            CandidateProfileId = job.CandidateProfileId,
+            JobId = job.Id,
+            RequirementSetId = requirementSet.Id,
+            ScoringVersionId = draft.ScoringVersion,
+            CandidateSnapshotJson = Serialize(candidateSnapshot),
+            RequirementSnapshotJson = Serialize(requirementSnapshot),
+            ResultJson = Serialize(draft),
+            OverallScore = draft.OverallScore is null ? null : (decimal)draft.OverallScore,
+            OverallClassification = draft.Classification?.ToString(),
+            OverallStatus = draft.Status.ToString(),
+            OverallConfidence = (decimal)draft.OverallConfidence,
+            EvaluationCoverage = (decimal)draft.EvaluationCoverage,
             CreatedAt = DateTime.UtcNow
         };
         database.MatchResults.Add(result);
         foreach (var match in draft.Requirements)
         {
             var requirement = requirementSnapshot.Requirements.Single(item => item.Id == match.RequirementId);
-            var record = new RequirementMatchRecord { Id = Guid.NewGuid(), MatchResultId = result.Id,
-                RequirementId = match.RequirementId, RequirementSnapshotJson = Serialize(requirement), ResultSnapshotJson = Serialize(match) };
+            var record = new RequirementMatchRecord
+            {
+                Id = Guid.NewGuid(),
+                MatchResultId = result.Id,
+                RequirementId = match.RequirementId,
+                RequirementSnapshotJson = Serialize(requirement),
+                ResultSnapshotJson = Serialize(match)
+            };
             database.RequirementMatchRecords.Add(record);
             foreach (var evidence in match.Evidence)
                 database.RequirementMatchEvidenceRecords.Add(new RequirementMatchEvidenceRecord
                 {
-                    Id = Guid.NewGuid(), RequirementMatchRecordId = record.Id, EvidenceItemId = evidence.EvidenceId,
-                    EvidenceSnapshotJson = Serialize(evidence), Contribution = (decimal)evidence.Contribution
+                    Id = Guid.NewGuid(),
+                    RequirementMatchRecordId = record.Id,
+                    EvidenceItemId = evidence.EvidenceId,
+                    EvidenceSnapshotJson = Serialize(evidence),
+                    Contribution = (decimal)evidence.Contribution
                 });
         }
+        foreach (var recommendation in Recommendations(result.Id, draft))
+            database.MatchRecommendations.Add(recommendation);
         await database.SaveChangesAsync(ct);
         return View(result, draft);
     }
@@ -90,14 +108,15 @@ public sealed class MatchingWorkspace(ProofPathDbContext database) : IMatchingWo
     private async Task<Job?> OwnedJob(string userId, Guid jobId, CancellationToken ct) =>
         await (from job in database.Jobs.AsNoTracking()
                join profile in database.CandidateProfiles.AsNoTracking() on job.CandidateProfileId equals profile.Id
-               where job.Id == jobId && profile.UserId == userId select job).SingleOrDefaultAsync(ct);
+               where job.Id == jobId && profile.UserId == userId
+               select job).SingleOrDefaultAsync(ct);
 
     private async Task<CandidateEvidenceSnapshot> CandidateSnapshot(Guid profileId, CancellationToken ct)
     {
         var activeExtractionIds = await (from extraction in database.ResumeExtractions.AsNoTracking()
-            join resume in database.Resumes.AsNoTracking() on extraction.ResumeId equals resume.Id
-            where resume.CandidateProfileId == profileId && extraction.Active && extraction.ConfirmedAt != null
-            select extraction.Id).ToArrayAsync(ct);
+                                         join resume in database.Resumes.AsNoTracking() on extraction.ResumeId equals resume.Id
+                                         where resume.CandidateProfileId == profileId && extraction.Active && extraction.ConfirmedAt != null
+                                         select extraction.Id).ToArrayAsync(ct);
         var evidence = await database.EvidenceItems.AsNoTracking().Where(item => item.CandidateProfileId == profileId &&
             (item.ResumeExtractionId == null || activeExtractionIds.Contains(item.ResumeExtractionId.Value))).OrderBy(item => item.Id).ToArrayAsync(ct);
         var experiences = await database.Experiences.AsNoTracking().Where(item => item.CandidateProfileId == profileId &&
@@ -128,6 +147,44 @@ public sealed class MatchingWorkspace(ProofPathDbContext database) : IMatchingWo
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
     private static T? Deserialize<T>(string value) => JsonSerializer.Deserialize<T>(value, Json);
     private static string Hash(IEnumerable<string> values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", values)))).ToLowerInvariant();
+
+    private static MatchRecommendation[] Recommendations(Guid matchResultId, MatchResultDraft result)
+    {
+        var now = DateTime.UtcNow;
+        var ranked = result.Gaps.OrderBy(item => item.Priority).ThenBy(item => item.Type)
+            .ThenBy(item => item.Requirement, StringComparer.Ordinal).Take(5).ToArray();
+        if (ranked.Length == 0)
+            return [new MatchRecommendation
+            {
+                Id = Guid.NewGuid(), MatchResultId = matchResultId, Rank = 1, Kind = "MaintainEvidence",
+                Title = "Keep your strongest evidence current",
+                Rationale = "This snapshot has no scored gaps. Preserve its strengths before applying.",
+                Action = "Review the evidence trace, refresh stale sources, and prepare the strongest examples for the application.",
+                CreatedAt = now, UpdatedAt = now
+            }];
+        return ranked.Select((gap, index) => new MatchRecommendation
+        {
+            Id = Guid.NewGuid(),
+            MatchResultId = matchResultId,
+            RequirementId = gap.RequirementId,
+            Rank = index + 1,
+            Kind = gap.Type.ToString(),
+            Title = $"Improve evidence for {gap.Requirement}",
+            Rationale = gap.Reason,
+            Action = Action(gap),
+            CreatedAt = now,
+            UpdatedAt = now
+        }).ToArray();
+    }
+
+    private static string Action(MatchGapDraft gap) => gap.Type switch
+    {
+        MatchGapType.SkillGap => $"Build or extend a focused project that uses {gap.Requirement}, then capture implementation and test evidence.",
+        MatchGapType.EvidenceGap => $"Strengthen {gap.Requirement} with tests, usage examples, and a concise explanation of the implementation.",
+        MatchGapType.ExperienceGap => $"Document a concrete experience demonstrating {gap.Requirement}, including scope, responsibility, and outcome.",
+        MatchGapType.EducationCredentialGap => $"Verify the credential requirement for {gap.Requirement} and record an equivalent or in-progress qualification.",
+        _ => $"Review and verify the available evidence for {gap.Requirement} before relying on this match."
+    };
 }
 
 internal static class MatchingSnapshotExtensions

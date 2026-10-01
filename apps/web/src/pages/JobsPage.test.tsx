@@ -9,6 +9,7 @@ import type { JobReview, MatchView } from '../api/jobs'
 vi.mock('../api/jobs', () => ({ jobs: {
   list: vi.fn(), create: vi.fn(), update: vi.fn(), review: vi.fn(), saveReview: vi.fn(),
   confirm: vi.fn(), skills: vi.fn(), status: vi.fn(), retry: vi.fn(), calculateMatch: vi.fn(), matches: vi.fn(), latestMatch: vi.fn(),
+  tracking: vi.fn(), updateTracking: vi.fn(), recommendations: vi.fn(), updateRecommendation: vi.fn(), scoreHistory: vi.fn(), rescan: vi.fn(),
 } }))
 function mount(ui: React.ReactNode) {
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
@@ -28,6 +29,9 @@ beforeEach(() => {
   vi.mocked(jobs.skills).mockResolvedValue([{ id: 'react', displayName: 'React' }])
   vi.mocked(jobs.matches).mockResolvedValue([])
   vi.mocked(jobs.latestMatch).mockResolvedValue(null)
+  vi.mocked(jobs.tracking).mockResolvedValue({ jobId: 'job-1', stage: 'Saved', notes: null, nextActionAt: null, updatedAt: '2026-09-30T00:00:00Z' })
+  vi.mocked(jobs.recommendations).mockResolvedValue([])
+  vi.mocked(jobs.scoreHistory).mockResolvedValue([])
 })
 describe('job intelligence', () => {
   it('keeps the description after a failed create request', async () => {
@@ -62,10 +66,15 @@ describe('job intelligence', () => {
     const match: MatchView = { id: '11111111-1111-1111-1111-111111111111', jobId: 'job-1', requirementSetId: 'set-1', scoringVersion: 'matching-v1', createdAt: '2026-09-29T00:00:00Z', result: { scoringVersion: 'matching-v1', overallScore: 86, classification: 'StrongMatch', status: 'Complete', overallConfidence: .9, confidenceBand: 'High', evaluationCoverage: 1, requiredCoverage: 1, safeguards: [], components: [{ name: 'Technical', status: 'Applicable', score: 90, coverage: 1, confidence: .9, appliedWeight: .45 }], requirements: [{ requirementId: 'req-1', key: 'csharp', originalWording: 'C#', category: 'TechnicalSkill', level: 'Required', importance: 'High', evaluationStatus: 'Evaluated', classification: 'Strong', score: 100, confidence: .9, confidenceBand: 'High', relation: 'ExactCanonical', reasonCode: 'SUPPORTED', details: 'Canonical evidence supports this requirement.', isStrength: true, gapType: null, priority: null, evidence: [{ evidenceId: 'ev-1', sourceEntityId: 'resume-1', evidenceType: 'Implementation', strength: 'Strong', lifecycle: 'Active', quote: 'Built an API in C#', sourceReference: 'resume-1', contribution: 1 }] }], gaps: [], behavioralAssessment: [] } }
     vi.mocked(jobs.latestMatch).mockResolvedValue(match)
     vi.mocked(jobs.matches).mockResolvedValue([{ id: match.id, createdAt: match.createdAt, scoringVersion: 'matching-v1', overallScore: 86, classification: 'StrongMatch', status: 'Complete', evaluationCoverage: 1 }])
+    vi.mocked(jobs.recommendations).mockResolvedValue([{ id: 'rec-1', matchResultId: match.id, requirementId: 'req-1', rank: 1, kind: 'EvidenceGap', title: 'Add stronger C# evidence', rationale: 'The requirement needs a clearer example.', action: 'Add a verified project example.', status: 'Open', createdAt: match.createdAt, updatedAt: match.createdAt }])
+    vi.mocked(jobs.scoreHistory).mockResolvedValue([{ matchResultId: match.id, createdAt: match.createdAt, score: 86, delta: null, classification: 'StrongMatch', status: 'Complete', coverage: 1 }])
     mount(<JobsPage />)
     await userEvent.setup().click(await screen.findByRole('button', { name: /Engineer/ }))
-    expect(await screen.findByText('86%')).toBeInTheDocument()
+    expect((await screen.findAllByText('86%')).length).toBeGreaterThan(0)
     expect(screen.getByText('matching-v1')).toBeInTheDocument()
+    expect(await screen.findByText('Add stronger C# evidence')).toBeInTheDocument()
+    expect(screen.getByText('Score history')).toBeInTheDocument()
+    expect(screen.getByText('Keep the next step visible')).toBeInTheDocument()
     await userEvent.setup().click(screen.getByText('C#'))
     expect(await screen.findByText(/Built an API in C#/)).toBeInTheDocument()
   })})

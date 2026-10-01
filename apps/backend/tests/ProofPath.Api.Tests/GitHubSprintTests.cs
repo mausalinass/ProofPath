@@ -73,18 +73,26 @@ public sealed class GitHubProviderContractTests
         using var rsa = RSA.Create(2048);
         return new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["GitHub:AppId"] = "123", ["GitHub:ClientId"] = "client", ["GitHub:ClientSecret"] = "secret",
-            ["GitHub:AppSlug"] = "proofpath-test", ["GitHub:PrivateKeyPem"] = rsa.ExportRSAPrivateKeyPem()
+            ["GitHub:AppId"] = "123",
+            ["GitHub:ClientId"] = "client",
+            ["GitHub:ClientSecret"] = "secret",
+            ["GitHub:AppSlug"] = "proofpath-test",
+            ["GitHub:PrivateKeyPem"] = rsa.ExportRSAPrivateKeyPem()
         }).Build();
     }
     private static Dictionary<string, object?> Repository(long id) => new()
     {
-        ["id"] = id, ["owner"] = new { login = "octocat" }, ["name"] = $"repo-{id}", ["full_name"] = $"octocat/repo-{id}",
-        ["private"] = false, ["default_branch"] = "main", ["html_url"] = $"https://github.test/octocat/repo-{id}"
+        ["id"] = id,
+        ["owner"] = new { login = "octocat" },
+        ["name"] = $"repo-{id}",
+        ["full_name"] = $"octocat/repo-{id}",
+        ["private"] = false,
+        ["default_branch"] = "main",
+        ["html_url"] = $"https://github.test/octocat/repo-{id}"
     };
     private static HttpResponseMessage Json(HttpStatusCode status, object body) => new(status) { Content = JsonContent.Create(body) };
     private static HttpResponseMessage Token() => Json(HttpStatusCode.OK, new Dictionary<string, object?>
-        { ["token"] = "ephemeral", ["expires_at"] = DateTime.UtcNow.AddHours(1) });
+    { ["token"] = "ephemeral", ["expires_at"] = DateTime.UtcNow.AddHours(1) });
 
     [Fact]
     public async Task RepositoryDiscoveryPaginatesAndClassifiesRateLimitsAsRetryable()
@@ -118,7 +126,8 @@ public sealed class GitHubProviderContractTests
             if (uri.Contains("/git/commits/", StringComparison.Ordinal)) return Task.FromResult(Json(HttpStatusCode.OK, new { tree = new { sha = "tree-sha" } }));
             if (uri.Contains("/git/trees/", StringComparison.Ordinal)) return Task.FromResult(Json(HttpStatusCode.OK, new
             {
-                tree = Enumerable.Range(1, 151).Select(index => new { path = $"src/File{index}.cs", type = "blob", sha = $"blob-{index}", size = 10 }).ToArray(), truncated = false
+                tree = Enumerable.Range(1, 151).Select(index => new { path = $"src/File{index}.cs", type = "blob", sha = $"blob-{index}", size = 10 }).ToArray(),
+                truncated = false
             }));
             if (uri.EndsWith("/languages", StringComparison.Ordinal)) return Task.FromResult(Json(HttpStatusCode.OK, new Dictionary<string, long> { ["C#"] = 1510 }));
             if (uri.Contains("/git/blobs/", StringComparison.Ordinal)) { blobs++; return Task.FromResult(Json(HttpStatusCode.OK, new { content = Convert.ToBase64String("class A{}"u8.ToArray()), encoding = "base64" })); }

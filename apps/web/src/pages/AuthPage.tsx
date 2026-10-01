@@ -25,7 +25,7 @@ export function AuthPage({ signup }: { signup: boolean }) {
         </label>)}</div>}
         <label>Email<input type="email" autoComplete="email" required value={values.email} onChange={e => setValues({ ...values, email: e.target.value })} /></label>
         <label>Password<input type="password" autoComplete={signup ? 'new-password' : 'current-password'} required value={values.password} onChange={e => setValues({ ...values, password: e.target.value })} /></label>
-        {signup && <p className="hint">Use at least 6 characters with uppercase, lowercase, a number and a symbol. Your profile is private.</p>}
+        {signup && <p className="hint">Use at least 12 characters with uppercase, lowercase, a number and a symbol. Your profile is private.</p>}
         {mutation.isError && <ErrorNotice message={mutation.error.message} />}
         <button disabled={mutation.isPending}>{mutation.isPending ? 'Please wait…' : signup ? 'Create account' : 'Sign in'}</button>
       </form>

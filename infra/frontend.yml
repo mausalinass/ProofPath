@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private S3 and CloudFront hosting for the ProofPath single-page application.
+Parameters:
+  ApiDomain: { Type: String }
+  OriginVerifySecret: { Type: String, NoEcho: true, MinLength: 32 }
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: { OriginAccessControlConfig: { Name: proofpath-web, OriginAccessControlOriginType: s3, SigningBehavior: always, SigningProtocol: sigv4 } }
+  SpaRewrite:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: proofpath-spa-rewrite
+      AutoPublish: true
+      FunctionConfig: { Comment: Rewrite client routes to index without masking API errors, Runtime: cloudfront-js-2.0 }
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (!request.uri.startsWith('/api/') && !request.uri.startsWith('/health') && !request.uri.includes('.')) request.uri = '/index.html';
+          return request;
+        }
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Origins:
+          - { Id: web, DomainName: !GetAtt WebBucket.RegionalDomainName, S3OriginConfig: {}, OriginAccessControlId: !Ref OriginAccessControl }
+          - Id: api
+            DomainName: !Ref ApiDomain
+            OriginCustomHeaders: [{ HeaderName: X-ProofPath-Origin, HeaderValue: !Ref OriginVerifySecret }]
+            CustomOriginConfig: { HTTPPort: 80, OriginProtocolPolicy: http-only }
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          FunctionAssociations: [{ EventType: viewer-request, FunctionARN: !GetAtt SpaRewrite.FunctionARN }]
+        CacheBehaviors:
+          - { PathPattern: '/api/*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 413f5281-0355-4e2e-9a38-e1c9f83d9f18, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachedMethods: [GET, HEAD, OPTIONS] }
+          - { PathPattern: '/health*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 413f5281-0355-4e2e-9a38-e1c9f83d9f18, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 }
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub '${WebBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+Outputs:
+  PublicUrl: { Value: !Sub 'https://${Distribution.DomainName}' }
+  WebBucketName: { Value: !Ref WebBucket }
+  DistributionId: { Value: !Ref Distribution }

@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: proofpath
+      POSTGRES_USER: proofpath
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [proofpath-db:/var/lib/postgresql/data]
+    healthcheck: { test: [CMD-SHELL, "pg_isready -U proofpath -d proofpath"], interval: 5s, timeout: 5s, retries: 10 }
+  api:
+    build: { context: ., dockerfile: apps/backend/Dockerfile.api }
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Database=proofpath;Username=proofpath;Password=${POSTGRES_PASSWORD}
+      Storage__PrivateRoot: /data/resumes
+      Frontend__Origins__0: http://localhost:8080
+    volumes: [proofpath-resumes:/data/resumes]
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["5001:8080"]
+  worker:
+    build: { context: ., dockerfile: apps/backend/Dockerfile.worker }
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Database=proofpath;Username=proofpath;Password=${POSTGRES_PASSWORD}
+      Storage__PrivateRoot: /data/resumes
+    volumes: [proofpath-resumes:/data/resumes]
+    depends_on: { postgres: { condition: service_healthy } }
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { VITE_API_URL: http://localhost:5001 } }
+    ports: ["8080:8080"]
+    depends_on: [api]
+volumes:
+  proofpath-db:
+  proofpath-resumes:

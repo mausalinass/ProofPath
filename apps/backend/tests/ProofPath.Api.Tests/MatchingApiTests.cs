@@ -32,23 +32,71 @@ public sealed class MatchingApiTests(ApiFixture fixture)
             jobId = Guid.NewGuid();
             var extractionId = Guid.NewGuid();
             var setId = Guid.NewGuid();
-            database.Jobs.Add(new Job { Id = jobId, CandidateProfileId = profile.Id, Company = "Acme", Title = "Engineer",
-                Description = new string('x', 120), DescriptionVersion = 1, Status = JobStatus.Confirmed,
-                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
-            database.JobRequirementExtractions.Add(new JobRequirementExtraction { Id = extractionId, JobId = jobId,
-                DescriptionVersion = 1, Revision = 1, MachineJson = "{}", DraftJson = "{}", ConfirmedAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow });
-            database.RequirementSets.Add(new RequirementSet { Id = setId, JobId = jobId,
-                JobRequirementExtractionId = extractionId, Version = 1, Active = true, ConfirmedAt = DateTime.UtcNow });
-            database.JobRequirements.Add(new JobRequirement { Id = Guid.NewGuid(), RequirementSetId = setId,
-                Key = "csharp", Category = RequirementCategory.TechnicalSkill, Level = RequirementLevel.Required,
-                Importance = RequirementImportance.High, State = RequirementState.Confirmed, OriginalWording = "C#",
-                SkillTerm = "C#", SkillId = "csharp", NormalizationStatus = RequirementNormalizationStatus.Exact,
-                SourceBlockId = "jd-1", Quote = "C# is required", IsEvaluable = true, IsScoreEligible = true });
-            database.EvidenceItems.Add(new EvidenceItem { Id = Guid.NewGuid(), CandidateProfileId = profile.Id,
-                SkillId = "csharp", OriginalTerm = "C#", Context = "Built an API", Strength = "Strong",
-                ExtractionConfidence = 1, EvidenceType = "Implementation", Lifecycle = "Active", SourceBlockId = "resume-1",
-                Quote = "Built an API in C#", ObservedAt = DateTime.UtcNow });
+            database.Jobs.Add(new Job
+            {
+                Id = jobId,
+                CandidateProfileId = profile.Id,
+                Company = "Acme",
+                Title = "Engineer",
+                Description = new string('x', 120),
+                DescriptionVersion = 1,
+                Status = JobStatus.Confirmed,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            database.JobRequirementExtractions.Add(new JobRequirementExtraction
+            {
+                Id = extractionId,
+                JobId = jobId,
+                DescriptionVersion = 1,
+                Revision = 1,
+                MachineJson = "{}",
+                DraftJson = "{}",
+                ConfirmedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+            database.RequirementSets.Add(new RequirementSet
+            {
+                Id = setId,
+                JobId = jobId,
+                JobRequirementExtractionId = extractionId,
+                Version = 1,
+                Active = true,
+                ConfirmedAt = DateTime.UtcNow
+            });
+            database.JobRequirements.Add(new JobRequirement
+            {
+                Id = Guid.NewGuid(),
+                RequirementSetId = setId,
+                Key = "csharp",
+                Category = RequirementCategory.TechnicalSkill,
+                Level = RequirementLevel.Required,
+                Importance = RequirementImportance.High,
+                State = RequirementState.Confirmed,
+                OriginalWording = "C#",
+                SkillTerm = "C#",
+                SkillId = "csharp",
+                NormalizationStatus = RequirementNormalizationStatus.Exact,
+                SourceBlockId = "jd-1",
+                Quote = "C# is required",
+                IsEvaluable = true,
+                IsScoreEligible = true
+            });
+            database.EvidenceItems.Add(new EvidenceItem
+            {
+                Id = Guid.NewGuid(),
+                CandidateProfileId = profile.Id,
+                SkillId = "csharp",
+                OriginalTerm = "C#",
+                Context = "Built an API",
+                Strength = "Strong",
+                ExtractionConfidence = 1,
+                EvidenceType = "Implementation",
+                Lifecycle = "Active",
+                SourceBlockId = "resume-1",
+                Quote = "Built an API in C#",
+                ObservedAt = DateTime.UtcNow
+            });
             await database.SaveChangesAsync();
         }
 

@@ -39,7 +39,9 @@ public sealed class JobProviderContractTests
     }
     private static IConfiguration Config() => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
     {
-        ["OpenAI:ApiKey"] = "fixture-only", ["OpenAI:Model"] = "gpt-6-astra", ["OpenAI:ReasoningEffort"] = "medium"
+        ["OpenAI:ApiKey"] = "fixture-only",
+        ["OpenAI:Model"] = "gpt-6-astra",
+        ["OpenAI:ReasoningEffort"] = "medium"
     }).Build();
 
     [Fact]
@@ -60,12 +62,15 @@ public sealed class JobProviderContractTests
             Assert.DoesNotContain("candidateProfile", serializedInput, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("resume", serializedInput, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("evidenceItems", serializedInput, StringComparison.OrdinalIgnoreCase);
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                status = "completed",
-                output = new[] { new { type = "message", content = new[] { new { type = "output_text", text = ResumeJson.Serialize(draft) } } } },
-                usage = new { input_tokens = 30, output_tokens = 20 }
-            }) };
+                Content = JsonContent.Create(new
+                {
+                    status = "completed",
+                    output = new[] { new { type = "message", content = new[] { new { type = "output_text", text = ResumeJson.Serialize(draft) } } } },
+                    usage = new { input_tokens = 30, output_tokens = 20 }
+                })
+            };
         }));
         var result = await new OpenAiJobRequirementProvider(http, Config(), new ProviderCircuit())
             .ExtractAsync(source, [new("csharp", "C#")], default);
@@ -128,7 +133,7 @@ public sealed class JobSprintTests(ApiFixture fixture) : IAsyncLifetime
             new { description = new string('x', 99) })).StatusCode);
 
         var response = await Write(owner, HttpMethod.Post, "/api/v1/jobs/", new
-            { company = "Acme", title = "Platform Engineer", description = Description, sourceUrl = "https://example.test/jobs/1" });
+        { company = "Acme", title = "Platform Engineer", description = Description, sourceUrl = "https://example.test/jobs/1" });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var created = (await response.Content.ReadFromJsonAsync<JobCreateResult>())!;
         Assert.Equal("Processing", created.Job.Status);
@@ -174,8 +179,14 @@ public sealed class JobSprintTests(ApiFixture fixture) : IAsyncLifetime
 
         var changedDescription = Description.Replace("Terraform", "Docker", StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, (await Write(owner, HttpMethod.Put, $"/api/v1/jobs/{created.Job.Id}",
-            new { company = "Acme", title = "Platform Engineer", description = changedDescription,
-                sourceUrl = "https://example.test/jobs/1", descriptionVersion = 1 })).StatusCode);
+            new
+            {
+                company = "Acme",
+                title = "Platform Engineer",
+                description = changedDescription,
+                sourceUrl = "https://example.test/jobs/1",
+                descriptionVersion = 1
+            })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/v1/jobs/{created.Job.Id}/requirements")).StatusCode);
         await using (var scope = fixture.Factory.Services.CreateAsyncScope())
         {

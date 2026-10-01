@@ -63,13 +63,28 @@ public static class ResumeModelConfiguration
         // Initial supported stack from the project specification; unknown terms remain unmapped.
         var catalog = new Dictionary<string, string>
         {
-            ["csharp"] = "C#", ["dotnet"] = ".NET", ["aspnet-core"] = "ASP.NET Core", ["entity-framework-core"] = "Entity Framework Core",
-            ["react"] = "React", ["typescript"] = "TypeScript", ["javascript"] = "JavaScript", ["postgresql"] = "PostgreSQL",
-            ["sql"] = "SQL", ["docker"] = "Docker", ["git"] = "Git", ["github-actions"] = "GitHub Actions",
-            ["python"] = "Python", ["java"] = "Java", ["nodejs"] = "Node.js", ["express"] = "Express",
-            ["rest-api"] = "REST APIs", ["dependency-injection"] = "Dependency Injection",
-            ["authentication-authorization"] = "Authentication & Authorization", ["automated-testing"] = "Automated Testing",
-            ["ci-cd"] = "CI/CD", ["aws"] = "AWS"
+            ["csharp"] = "C#",
+            ["dotnet"] = ".NET",
+            ["aspnet-core"] = "ASP.NET Core",
+            ["entity-framework-core"] = "Entity Framework Core",
+            ["react"] = "React",
+            ["typescript"] = "TypeScript",
+            ["javascript"] = "JavaScript",
+            ["postgresql"] = "PostgreSQL",
+            ["sql"] = "SQL",
+            ["docker"] = "Docker",
+            ["git"] = "Git",
+            ["github-actions"] = "GitHub Actions",
+            ["python"] = "Python",
+            ["java"] = "Java",
+            ["nodejs"] = "Node.js",
+            ["express"] = "Express",
+            ["rest-api"] = "REST APIs",
+            ["dependency-injection"] = "Dependency Injection",
+            ["authentication-authorization"] = "Authentication & Authorization",
+            ["automated-testing"] = "Automated Testing",
+            ["ci-cd"] = "CI/CD",
+            ["aws"] = "AWS"
         };
         builder.Entity<Skill>().HasData(catalog.Select(item => new Skill { Id = item.Key, DisplayName = item.Value }));
         builder.Entity<SkillAlias>().HasData(catalog.Select(item => new SkillAlias { Alias = item.Value.ToUpperInvariant(), SkillId = item.Key })

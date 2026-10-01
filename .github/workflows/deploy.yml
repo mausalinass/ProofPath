@@ -1,0 +1,77 @@
+name: Deploy production
+on: { workflow_dispatch: {} }
+permissions: { contents: read, id-token: write }
+concurrency: { group: proofpath-production, cancel-in-progress: false }
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce production release gates
+        env:
+          FILE_SECURITY_REVIEWED: "${{ vars.PROOFPATH_FILE_SECURITY_REVIEWED }}"
+          OPENAI_PRIVACY_REVIEWED: "${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
+          TRANSPORT_REVIEWED: "${{ vars.PROOFPATH_TRANSPORT_REVIEWED }}"
+          ORIGIN_SECRET: "${{ secrets.PROOFPATH_ORIGIN_VERIFY_SECRET }}"
+        run: |
+          test "$FILE_SECURITY_REVIEWED" = "true" || { echo "File security review is incomplete."; exit 1; }
+          test "$OPENAI_PRIVACY_REVIEWED" = "true" || { echo "OpenAI privacy review is incomplete."; exit 1; }
+          test "$TRANSPORT_REVIEWED" = "true" || { echo "CloudFront-to-origin TLS review is incomplete."; exit 1; }
+          test "${#ORIGIN_SECRET}" -ge 32 || { echo "Origin verification secret is missing or too short."; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v5
+        with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build and publish immutable containers
+        env: { REGISTRY: "${{ steps.ecr.outputs.registry }}", TAG: "${{ github.sha }}" }
+        run: |
+          docker build -f apps/backend/Dockerfile.api -t "$REGISTRY/proofpath-api:$TAG" .
+          docker build -f apps/backend/Dockerfile.worker -t "$REGISTRY/proofpath-worker:$TAG" .
+          docker push "$REGISTRY/proofpath-api:$TAG"
+          docker push "$REGISTRY/proofpath-worker:$TAG"
+      - name: Deploy application ingress
+        env:
+          REGISTRY: "${{ steps.ecr.outputs.registry }}"
+          TAG: "${{ github.sha }}"
+          ORIGIN_SECRET: "${{ secrets.PROOFPATH_ORIGIN_VERIFY_SECRET }}"
+        run: >-
+          aws cloudformation deploy --stack-name proofpath-production --template-file infra/production.yml --no-fail-on-empty-changeset
+          --parameter-overrides ApiImage=$REGISTRY/proofpath-api:$TAG WorkerImage=$REGISTRY/proofpath-worker:$TAG
+          VpcId=${{ vars.AWS_VPC_ID }} PublicSubnets=${{ vars.AWS_PUBLIC_SUBNETS }}
+          LoadBalancerSecurityGroups=${{ vars.AWS_ALB_SECURITY_GROUPS }} TaskSecurityGroups=${{ vars.AWS_TASK_SECURITY_GROUPS }}
+          ExecutionRoleArn=${{ vars.AWS_ECS_EXECUTION_ROLE_ARN }} TaskRoleArn=${{ vars.AWS_ECS_TASK_ROLE_ARN }}
+          ApplicationSecretArn=${{ vars.PROOFPATH_APPLICATION_SECRET_ARN }} DatabaseSecretArn=${{ vars.PROOFPATH_DATABASE_SECRET_ARN }}
+          DatabaseHost=${{ vars.PROOFPATH_DATABASE_HOST }} ResumeBucket=${{ vars.PROOFPATH_RESUME_BUCKET }}
+          FrontendOrigin=https://invalid.example OriginVerifySecret=$ORIGIN_SECRET
+          FileSecurityReviewed=${{ vars.PROOFPATH_FILE_SECURITY_REVIEWED }}
+          OpenAIPrivacyReviewed=${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}
+      - name: Deploy same-origin HTTPS frontend
+        env: { ORIGIN_SECRET: "${{ secrets.PROOFPATH_ORIGIN_VERIFY_SECRET }}" }
+        run: |
+          API_DOMAIN=$(aws cloudformation describe-stacks --stack-name proofpath-production --query "Stacks[0].Outputs[?OutputKey=='ApiDomain'].OutputValue" --output text)
+          aws cloudformation deploy --stack-name proofpath-frontend --template-file infra/frontend.yml --no-fail-on-empty-changeset --parameter-overrides ApiDomain=$API_DOMAIN OriginVerifySecret=$ORIGIN_SECRET
+      - name: Allow the final public origin
+        env:
+          REGISTRY: "${{ steps.ecr.outputs.registry }}"
+          TAG: "${{ github.sha }}"
+          ORIGIN_SECRET: "${{ secrets.PROOFPATH_ORIGIN_VERIFY_SECRET }}"
+        run: |
+          PUBLIC_URL=$(aws cloudformation describe-stacks --stack-name proofpath-frontend --query "Stacks[0].Outputs[?OutputKey=='PublicUrl'].OutputValue" --output text)
+          aws cloudformation deploy --stack-name proofpath-production --template-file infra/production.yml --no-fail-on-empty-changeset             --parameter-overrides ApiImage=$REGISTRY/proofpath-api:$TAG WorkerImage=$REGISTRY/proofpath-worker:$TAG             VpcId=${{ vars.AWS_VPC_ID }} PublicSubnets=${{ vars.AWS_PUBLIC_SUBNETS }}             LoadBalancerSecurityGroups=${{ vars.AWS_ALB_SECURITY_GROUPS }} TaskSecurityGroups=${{ vars.AWS_TASK_SECURITY_GROUPS }}             ExecutionRoleArn=${{ vars.AWS_ECS_EXECUTION_ROLE_ARN }} TaskRoleArn=${{ vars.AWS_ECS_TASK_ROLE_ARN }}             ApplicationSecretArn=${{ vars.PROOFPATH_APPLICATION_SECRET_ARN }} DatabaseSecretArn=${{ vars.PROOFPATH_DATABASE_SECRET_ARN }}             DatabaseHost=${{ vars.PROOFPATH_DATABASE_HOST }} ResumeBucket=${{ vars.PROOFPATH_RESUME_BUCKET }}             FrontendOrigin=$PUBLIC_URL OriginVerifySecret=$ORIGIN_SECRET             FileSecurityReviewed=${{ vars.PROOFPATH_FILE_SECURITY_REVIEWED }}             OpenAIPrivacyReviewed=${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}
+      - name: Apply database migrations
+        run: pwsh ./scripts/run-production-migration.ps1
+        env: { AWS_STACK_NAME: proofpath-production, PROOFPATH_MIGRATION_NETWORK: "${{ vars.PROOFPATH_MIGRATION_NETWORK }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - name: Build and publish static site
+        run: |
+          cd apps/web && npm ci && VITE_API_URL='' npm run build && cd ../..
+          WEB_BUCKET=$(aws cloudformation describe-stacks --stack-name proofpath-frontend --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" --output text)
+          DISTRIBUTION=$(aws cloudformation describe-stacks --stack-name proofpath-frontend --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)
+          aws s3 sync apps/web/dist "s3://$WEB_BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths '/*'
+      - name: Verify production readiness
+        run: |
+          PUBLIC_URL=$(aws cloudformation describe-stacks --stack-name proofpath-frontend --query "Stacks[0].Outputs[?OutputKey=='PublicUrl'].OutputValue" --output text)
+          curl --fail --retry 12 --retry-delay 10 "$PUBLIC_URL/health/ready"

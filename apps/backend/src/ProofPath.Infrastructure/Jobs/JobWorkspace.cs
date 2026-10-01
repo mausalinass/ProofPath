@@ -49,12 +49,20 @@ public sealed class JobRequirementNormalizer(ProofPathDbContext database) : IJob
         return item with { SkillTerm = term, SkillId = null, NormalizationStatus = RequirementNormalizationStatus.Unresolved };
     }
     private static RequirementLevel Stronger(RequirementLevel left, RequirementLevel right) =>
-        (left, right) switch { (RequirementLevel.Required, _) or (_, RequirementLevel.Required) => RequirementLevel.Required,
-            (RequirementLevel.Preferred, _) or (_, RequirementLevel.Preferred) => RequirementLevel.Preferred, _ => RequirementLevel.Unspecified };
+        (left, right) switch
+        {
+            (RequirementLevel.Required, _) or (_, RequirementLevel.Required) => RequirementLevel.Required,
+            (RequirementLevel.Preferred, _) or (_, RequirementLevel.Preferred) => RequirementLevel.Preferred,
+            _ => RequirementLevel.Unspecified
+        };
     private static RequirementImportance Stronger(RequirementImportance left, RequirementImportance right) =>
-        (left, right) switch { (RequirementImportance.Critical, _) or (_, RequirementImportance.Critical) => RequirementImportance.Critical,
+        (left, right) switch
+        {
+            (RequirementImportance.Critical, _) or (_, RequirementImportance.Critical) => RequirementImportance.Critical,
             (RequirementImportance.High, _) or (_, RequirementImportance.High) => RequirementImportance.High,
-            (RequirementImportance.Medium, _) or (_, RequirementImportance.Medium) => RequirementImportance.Medium, _ => RequirementImportance.Low };
+            (RequirementImportance.Medium, _) or (_, RequirementImportance.Medium) => RequirementImportance.Medium,
+            _ => RequirementImportance.Low
+        };
 }
 
 public sealed class JobWorkspace(ProofPathDbContext database, IAnalysisQueue queue, IJobRequirementNormalizer normalizer) : IJobWorkspace, IJobInputReader
@@ -62,8 +70,17 @@ public sealed class JobWorkspace(ProofPathDbContext database, IAnalysisQueue que
     public async Task<JobCreateResult> CreateAsync(string userId, JobWrite input, CancellationToken ct)
     {
         var profileId = await ProfileId(userId, ct); var clean = Validate(input);
-        var now = DateTime.UtcNow; var job = new Job { Id = Guid.NewGuid(), CandidateProfileId = profileId, Company = clean.Company,
-            Title = clean.Title, Description = clean.Description, SourceUrl = clean.SourceUrl, CreatedAt = now, UpdatedAt = now };
+        var now = DateTime.UtcNow; var job = new Job
+        {
+            Id = Guid.NewGuid(),
+            CandidateProfileId = profileId,
+            Company = clean.Company,
+            Title = clean.Title,
+            Description = clean.Description,
+            SourceUrl = clean.SourceUrl,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
         database.Jobs.Add(job); await database.SaveChangesAsync(ct);
         job.AnalysisJobId = await queue.EnqueueAsync(userId, AnalysisKind.JobDescription, job.Id, "job-description-v1", ct);
         await database.SaveChangesAsync(ct); return new(View(job, null), job.AnalysisJobId.Value);
@@ -143,13 +160,29 @@ public sealed class JobWorkspace(ProofPathDbContext database, IAnalysisQueue que
         foreach (var item in draft.Requirements)
         {
             var excluded = item.State == RequirementState.Excluded; var evaluable = !excluded && (item.Category != RequirementCategory.TechnicalSkill || item.SkillId is not null);
-            database.JobRequirements.Add(new JobRequirement { Id = Guid.NewGuid(), RequirementSetId = set.Id, Key = item.Key,
-                Category = item.Category, Level = item.Level, Importance = item.Importance, State = excluded ? RequirementState.Excluded : RequirementState.Confirmed,
-                OriginalWording = item.OriginalWording, SkillTerm = item.SkillTerm, SkillId = item.SkillId, NormalizationStatus = item.NormalizationStatus,
-                BehavioralThemeKey = item.BehavioralThemeKey, QualifiersJson = JsonSerializer.Serialize(item.Qualifiers), GroupKey = item.GroupKey,
-                GroupType = item.GroupType, SourceBlockId = item.SourceBlockId, Quote = item.Quote, IsEvaluable = evaluable,
+            database.JobRequirements.Add(new JobRequirement
+            {
+                Id = Guid.NewGuid(),
+                RequirementSetId = set.Id,
+                Key = item.Key,
+                Category = item.Category,
+                Level = item.Level,
+                Importance = item.Importance,
+                State = excluded ? RequirementState.Excluded : RequirementState.Confirmed,
+                OriginalWording = item.OriginalWording,
+                SkillTerm = item.SkillTerm,
+                SkillId = item.SkillId,
+                NormalizationStatus = item.NormalizationStatus,
+                BehavioralThemeKey = item.BehavioralThemeKey,
+                QualifiersJson = JsonSerializer.Serialize(item.Qualifiers),
+                GroupKey = item.GroupKey,
+                GroupType = item.GroupType,
+                SourceBlockId = item.SourceBlockId,
+                Quote = item.Quote,
+                IsEvaluable = evaluable,
                 IsScoreEligible = evaluable && item.Category is RequirementCategory.TechnicalSkill or RequirementCategory.Experience or RequirementCategory.EducationCredential,
-                UserCorrected = !machineByKey.TryGetValue(item.Key, out var original) || ResumeJson.Serialize(original) != ResumeJson.Serialize(item) });
+                UserCorrected = !machineByKey.TryGetValue(item.Key, out var original) || ResumeJson.Serialize(original) != ResumeJson.Serialize(item)
+            });
         }
         extraction.ConfirmedAt = DateTime.UtcNow; var job = await Owned(userId).SingleAsync(item => item.Id == id, ct); job.Status = JobStatus.Confirmed; job.UpdatedAt = DateTime.UtcNow;
         await database.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
@@ -186,10 +219,20 @@ public sealed class JobAnalysisCompletion(ProofPathDbContext database) : IAnalys
         if (job is null || lease.InputVersion != $"job-description-v{job.DescriptionVersion}") return;
         var result = ResumeJson.Read<JobAnalysisResult>(output.ResultJson); JobRequirementValidation.Validate(result.Draft, result.Source, machine: true);
         if (await database.JobRequirementExtractions.AnyAsync(item => item.JobId == job.Id && item.DescriptionVersion == job.DescriptionVersion, ct)) return;
-        database.JobRequirementExtractions.Add(new JobRequirementExtraction { Id = Guid.NewGuid(), JobId = job.Id, DescriptionVersion = job.DescriptionVersion,
-            MachineJson = output.ResultJson, DraftJson = ResumeJson.Serialize(result.Draft), Model = result.Model, CreatedAt = DateTime.UtcNow,
-            PromptVersion = result.PromptVersion, SchemaVersion = result.SchemaVersion, ExtractionVersion = result.ExtractionVersion,
-            NormalizationPolicyVersion = result.NormalizationPolicyVersion });
+        database.JobRequirementExtractions.Add(new JobRequirementExtraction
+        {
+            Id = Guid.NewGuid(),
+            JobId = job.Id,
+            DescriptionVersion = job.DescriptionVersion,
+            MachineJson = output.ResultJson,
+            DraftJson = ResumeJson.Serialize(result.Draft),
+            Model = result.Model,
+            CreatedAt = DateTime.UtcNow,
+            PromptVersion = result.PromptVersion,
+            SchemaVersion = result.SchemaVersion,
+            ExtractionVersion = result.ExtractionVersion,
+            NormalizationPolicyVersion = result.NormalizationPolicyVersion
+        });
         job.Status = JobStatus.ReadyForReview; job.UpdatedAt = DateTime.UtcNow; await database.SaveChangesAsync(ct);
     }
 }

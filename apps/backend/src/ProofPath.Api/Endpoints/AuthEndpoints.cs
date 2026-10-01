@@ -15,8 +15,15 @@ public static class AuthEndpoints
             UserManager<ApplicationUser> userManager,
             ProofPathDbContext database,
             CandidateProfileService profiles,
+            IConfiguration configuration,
+            IHostEnvironment environment,
             CancellationToken cancellationToken) =>
         {
+            var registrationEnabled = configuration.GetValue<bool?>("Auth:RegistrationEnabled")
+                ?? environment.IsDevelopment() || environment.IsEnvironment("Testing");
+            if (!registrationEnabled)
+                return Results.Problem("Public registration is not enabled for this environment.", statusCode: 403,
+                    extensions: new Dictionary<string, object?> { ["code"] = "REGISTRATION_DISABLED" });
             if (string.IsNullOrWhiteSpace(request.Email))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -108,7 +115,7 @@ public static class AuthEndpoints
 
         endpoints.MapGet($"{prefix}/me", (ClaimsPrincipal principal) =>
         {
-            var id    = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var id = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             var email = principal.FindFirstValue(ClaimTypes.Email);
 
             return Results.Ok(new { id, email });

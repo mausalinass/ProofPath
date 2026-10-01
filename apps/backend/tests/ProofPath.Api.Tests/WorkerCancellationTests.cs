@@ -24,7 +24,8 @@ public sealed class WorkerCancellationTests(ApiFixture fixture)
             catch (OperationCanceledException) { Cancelled.TrySetResult(); throw; }
         }
     }
-    [Fact] public async Task CancellationReachesTheRunningHandlerAndCannotPublishAResult()
+    [Fact]
+    public async Task CancellationReachesTheRunningHandlerAndCannotPublishAResult()
     {
         var handler = new BlockingHandler();
         await using var factory = fixture.Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>

@@ -7,10 +7,15 @@ import { GitHubPage } from './pages/GitHubPage'
 import { JobsPage } from './pages/JobsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { HomePage } from './pages/HomePage'
+import { LandingPage } from './pages/LandingPage'
 import { SettingsPage } from './pages/SettingsPage'
 import './App.css'
 
 export default function App() {
+  return window.location.pathname === '/' ? <LandingPage /> : <WorkspaceApp />
+}
+
+function WorkspaceApp() {
   const path = window.location.pathname
   const client = useQueryClient()
   const session = useQuery({ queryKey: ['session'], queryFn: api.session, retry: false })

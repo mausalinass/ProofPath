@@ -11,12 +11,14 @@ namespace ProofPath.Api.Tests;
 
 public sealed class ResumePolicyTests
 {
-    [Fact] public void ContactRedactionPreservesProfessionalDates()
+    [Fact]
+    public void ContactRedactionPreservesProfessionalDates()
     {
         var text = ResumeProviderInput.RedactText("test@example.test +1 (212) 555-1234 Engineer 2021-2024");
         Assert.DoesNotContain("test@example.test", text); Assert.DoesNotContain("555-1234", text); Assert.Contains("2021-2024", text);
     }
-    [Fact] public void BehavioralRulesRejectUnrelatedThemesAndDoNotScorePersonality()
+    [Fact]
+    public void BehavioralRulesRejectUnrelatedThemesAndDoNotScorePersonality()
     {
         Assert.Equal("Weak", BehaviorEvidenceRules.Strength("LEADERSHIP", "Leadership"));
         Assert.Equal("Moderate", BehaviorEvidenceRules.Strength("MENTORING", "Mentored teammates."));
@@ -42,7 +44,8 @@ public sealed class ResumePolicyTests
             return Task.FromResult(new LlmResumeResult(draft, "fixture", 0, 0, 0));
         }
     }
-    [Fact] public async Task InvalidBehaviorDoesNotDiscardValidTechnicalFacts()
+    [Fact]
+    public async Task InvalidBehaviorDoesNotDiscardValidTechnicalFacts()
     {
         var handler = new ResumeAnalysisHandler(new Input(), new FileStore(), new DocumentTextExtractor(), new InvalidBehaviorProvider());
         var lease = new AnalysisLease(Guid.NewGuid(), Guid.NewGuid(), AnalysisKind.Resume, Guid.NewGuid(), "v1", Guid.NewGuid(), DateTime.UtcNow.AddMinutes(5), 1);
@@ -64,7 +67,8 @@ public sealed class ResumeRecoveryTests(ApiFixture fixture)
         public Task<StoredPrivateFile> PutAsync(Stream content, CancellationToken ct) => inner.PutAsync(content, ct);
         public Task<StoredPrivateFile> PutAsync(string key, Stream content, CancellationToken ct) => inner.PutAsync(key, content, ct);
     }
-    [Fact] public async Task FileDeletionSurvivesStorageFailureAndRetriesDurably()
+    [Fact]
+    public async Task FileDeletionSurvivesStorageFailureAndRetriesDurably()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<ProofPathDbContext>();
         var store = new RecoverableStore(scope.ServiceProvider.GetRequiredService<IPrivateFileStore>());

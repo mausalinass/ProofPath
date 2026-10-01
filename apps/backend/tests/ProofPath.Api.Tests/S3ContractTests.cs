@@ -20,14 +20,16 @@ public sealed class S3ContractTests
         public override Task<ListVersionsResponse> ListVersionsAsync(ListVersionsRequest request, CancellationToken ct = default) => Task.FromResult(new ListVersionsResponse
         {
             IsTruncated = request.KeyMarker is null,
-            NextKeyMarker = request.Prefix, NextVersionIdMarker = "v1",
+            NextKeyMarker = request.Prefix,
+            NextVersionIdMarker = "v1",
             Versions = request.KeyMarker is null ? [new S3ObjectVersion { Key = request.Prefix, VersionId = "v1" }, new S3ObjectVersion { Key = request.Prefix + "other", VersionId = "foreign" }]
                 : [new S3ObjectVersion { Key = request.Prefix, VersionId = "marker", IsDeleteMarker = true }]
         });
         public override Task<DeleteObjectResponse> DeleteObjectAsync(DeleteObjectRequest request, CancellationToken ct = default)
         { Deleted.Add(request); return Task.FromResult(new DeleteObjectResponse()); }
     }
-    [Fact] public async Task UploadRequiresPrivateBucketAndUsesEncryptionOpaqueKeyAndCreateOnly()
+    [Fact]
+    public async Task UploadRequiresPrivateBucketAndUsesEncryptionOpaqueKeyAndCreateOnly()
     {
         using var s3 = new FakeS3(); var store = new S3PrivateFileStore(s3, "fixture-private-bucket");
         var result = await store.PutAsync(new MemoryStream([1, 2, 3]), default);
@@ -36,7 +38,8 @@ public sealed class S3ContractTests
         s3.Private = false;
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.PutAsync(new MemoryStream([1]), default));
     }
-    [Fact] public async Task DeletionIncludesAllVersionsAndMarkersButNeverPrefixNeighbors()
+    [Fact]
+    public async Task DeletionIncludesAllVersionsAndMarkersButNeverPrefixNeighbors()
     {
         using var s3 = new FakeS3(); var store = new S3PrivateFileStore(s3, "fixture-private-bucket");
         var key = Guid.NewGuid().ToString("N"); await store.DeleteAsync(key, default);

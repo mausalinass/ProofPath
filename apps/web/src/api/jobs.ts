@@ -35,6 +35,12 @@ export type MatchGap = { requirementId: string; requirement: string; type: strin
 export type MatchDraft = { scoringVersion: string; overallScore: number | null; classification: string | null; status: 'Complete' | 'CoverageWarning' | 'Limited'; overallConfidence: number; confidenceBand: string; evaluationCoverage: number; requiredCoverage: number | null; components: MatchComponent[]; requirements: RequirementMatch[]; gaps: MatchGap[]; behavioralAssessment: { themeKey: string; observed: boolean; summary: string; evidenceIds: string[] }[]; safeguards: string[] }
 export type MatchView = { id: string; jobId: string; requirementSetId: string; scoringVersion: string; createdAt: string; result: MatchDraft }
 export type MatchSummary = { id: string; createdAt: string; scoringVersion: string; overallScore: number | null; classification: string | null; status: string; evaluationCoverage: number }
+export type ApplicationStage = 'Saved' | 'Preparing' | 'Applied' | 'Interviewing' | 'Offer' | 'Rejected' | 'Withdrawn'
+export type RecommendationStatus = 'Open' | 'InProgress' | 'Completed' | 'Dismissed'
+export type JobTracking = { jobId: string; stage: ApplicationStage; notes: string | null; nextActionAt: string | null; updatedAt: string }
+export type JobTrackingInput = { stage: ApplicationStage; notes: string | null; nextActionAt: string | null }
+export type RecommendationView = { id: string; matchResultId: string; requirementId: string | null; rank: number; kind: string; title: string; rationale: string; action: string; status: RecommendationStatus; createdAt: string; updatedAt: string }
+export type ScoreHistoryPoint = { matchResultId: string; createdAt: string; score: number | null; delta: number | null; classification: string | null; status: string; coverage: number }
 export const jobs = {
   list: () => request<JobSummary[]>('/api/v1/jobs/'),
   get: (id: string) => request<JobSummary>('/api/v1/jobs/' + id),
@@ -50,4 +56,10 @@ export const jobs = {
   calculateMatch: (id: string) => request<MatchView>('/api/v1/jobs/' + id + '/matches/', 'POST', {}),
   matches: (id: string) => request<MatchSummary[]>('/api/v1/jobs/' + id + '/matches/'),
   latestMatch: async (id: string) => { try { return await request<MatchView>('/api/v1/jobs/' + id + '/matches/latest') } catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error } },
+  tracking: (id: string) => request<JobTracking>('/api/v1/jobs/' + id + '/tracking'),
+  updateTracking: (id: string, input: JobTrackingInput) => request<JobTracking>('/api/v1/jobs/' + id + '/tracking', 'PUT', input),
+  recommendations: (id: string) => request<RecommendationView[]>('/api/v1/jobs/' + id + '/recommendations'),
+  updateRecommendation: (jobId: string, recommendationId: string, status: RecommendationStatus) => request<RecommendationView>('/api/v1/jobs/' + jobId + '/recommendations/' + recommendationId, 'PUT', { status }),
+  scoreHistory: (id: string) => request<ScoreHistoryPoint[]>('/api/v1/jobs/' + id + '/score-history'),
+  rescan: (id: string) => request<MatchView>('/api/v1/jobs/' + id + '/rescan', 'POST', {}),
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ErrorNotice, Loading } from '../components/Feedback'
 import { jobs } from '../api/jobs'
-import type { JobInput, JobReview, JobSummary, MatchView, RequirementDraft, RequirementDraftSet, SkillOption } from '../api/jobs'
+import type { ApplicationStage, JobInput, JobReview, JobSummary, JobTracking, MatchView, RecommendationStatus, RecommendationView, RequirementDraft, RequirementDraftSet, ScoreHistoryPoint, SkillOption } from '../api/jobs'
 import './JobsPage.css'
 
 const terminal = ['Completed', 'PartiallyCompleted', 'Failed', 'Cancelled']
@@ -10,6 +10,8 @@ const categories = ['TechnicalSkill', 'Experience', 'EducationCredential', 'Beha
 const levels = ['Required', 'Preferred', 'Unspecified'] as const
 const importance = ['Critical', 'High', 'Medium', 'Low'] as const
 const groupTypes = ['None', 'AnyOf', 'AllOf'] as const
+const applicationStages: ApplicationStage[] = ['Saved', 'Preparing', 'Applied', 'Interviewing', 'Offer', 'Rejected', 'Withdrawn']
+const recommendationStatuses: RecommendationStatus[] = ['Open', 'InProgress', 'Completed', 'Dismissed']
 const labels: Record<string, string> = {
   TechnicalSkill: 'Technical skills', Experience: 'Experience', EducationCredential: 'Education & credentials',
   Behavioral: 'Behavioral evidence', Contextual: 'Context only',
@@ -68,8 +70,32 @@ function JobDetail({ job, refresh }: { job: JobSummary; refresh: () => void }) {
   return <div className="job-detail"><JobForm title={'Edit ' + (job.title || 'job')} input={input} setInput={setInput} submit={() => update.mutate()} pending={update.isPending} error={update.error?.message} submitLabel="Save changes" />
     {job.status === 'Processing' && <section className="notice" role="status"><strong>Requirement extraction is running.</strong><p>{status.data ? 'Worker state: ' + status.data.state + (status.data.errorCode ? ' · ' + status.data.errorCode : '') : 'Waiting for the worker…'}</p>{status.isError && <ErrorNotice message={status.error.message} retry={() => void status.refetch()} />}{status.data?.state === 'Failed' && status.data.retryable && <button onClick={() => retry.mutate()} disabled={retry.isPending}>Retry extraction</button>}</section>}
     {(job.status === 'ReadyForReview' || job.status === 'Confirmed') && <RequirementReview job={job} refresh={refresh} />}
-    {job.status === 'Confirmed' && <MatchPanel jobId={job.id} />}
+    {job.status === 'Confirmed' && <><TrackingPanel jobId={job.id} /><MatchPanel jobId={job.id} /></>}
   </div>
+}
+
+function TrackingPanel({ jobId }: { jobId: string }) {
+  const tracking = useQuery({ queryKey: ['job-tracking', jobId], queryFn: () => jobs.tracking(jobId) })
+  if (tracking.isPending) return <Loading message="Loading application tracking…" />
+  if (tracking.isError) return <ErrorNotice message={tracking.error.message} retry={() => void tracking.refetch()} />
+  return <TrackingForm key={tracking.data.updatedAt} jobId={jobId} initial={tracking.data} />
+}
+
+function TrackingForm({ jobId, initial }: { jobId: string; initial: JobTracking }) {
+  const [stage, setStage] = useState<ApplicationStage>(initial.stage)
+  const [notes, setNotes] = useState(initial.notes ?? '')
+  const [nextActionAt, setNextActionAt] = useState(initial.nextActionAt?.slice(0, 10) ?? '')
+  const save = useMutation({
+    mutationFn: () => jobs.updateTracking(jobId, { stage, notes: notes.trim() || null, nextActionAt: nextActionAt ? new Date(nextActionAt + 'T12:00:00').toISOString() : null }),
+  })
+  return <section className="card tracking-panel" aria-labelledby="tracking-title">
+    <div className="row-between"><div><p className="eyebrow">APPLICATION TRACKING</p><h2 id="tracking-title">Keep the next step visible</h2></div><span className={'stage-badge ' + stage.toLowerCase()}>{stage}</span></div>
+    <div className="tracking-grid"><label>Status<select value={stage} onChange={event => setStage(event.target.value as ApplicationStage)}>{applicationStages.map(value => <option key={value}>{value}</option>)}</select></label><label>Next action date<input aria-label="Next action date" type="date" value={nextActionAt} onChange={event => setNextActionAt(event.target.value)} /></label></div>
+    <label>Notes<textarea aria-label="Application notes" rows={3} maxLength={2000} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Contact, interview preparation, or follow-up details" /></label>
+    <div className="row-between"><span className="hint">{notes.length.toLocaleString()} / 2,000</span><button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save tracking'}</button></div>
+    {save.isSuccess && <p className="notice success" role="status">Application tracking saved.</p>}
+    {save.isError && <ErrorNotice message={save.error.message} />}
+  </section>
 }
 
 function RequirementReview({ job, refresh }: { job: JobSummary; refresh: () => void }) {
@@ -117,20 +143,42 @@ function MatchPanel({ jobId }: { jobId: string }) {
   const queryClient = useQueryClient()
   const latest = useQuery({ queryKey: ['job-match', jobId], queryFn: () => jobs.latestMatch(jobId) })
   const history = useQuery({ queryKey: ['job-match-history', jobId], queryFn: () => jobs.matches(jobId) })
+  const recommendations = useQuery({ queryKey: ['job-recommendations', jobId], queryFn: () => jobs.recommendations(jobId) })
+  const scoreHistory = useQuery({ queryKey: ['job-score-history', jobId], queryFn: () => jobs.scoreHistory(jobId) })
   const calculate = useMutation({
-    mutationFn: () => jobs.calculateMatch(jobId),
+    mutationFn: () => latest.data ? jobs.rescan(jobId) : jobs.calculateMatch(jobId),
     onSuccess: result => {
       queryClient.setQueryData(['job-match', jobId], result)
       void queryClient.invalidateQueries({ queryKey: ['job-match-history', jobId] })
+      void queryClient.invalidateQueries({ queryKey: ['job-recommendations', jobId] })
+      void queryClient.invalidateQueries({ queryKey: ['job-score-history', jobId] })
     },
   })
   if (latest.isPending) return <Loading message="Loading latest match…" />
   if (latest.isError) return <ErrorNotice message={latest.error.message} retry={() => void latest.refetch()} />
   return <section className="card match-panel" aria-labelledby="match-title">
-    <div className="row-between"><div><p className="eyebrow">DETERMINISTIC MATCH</p><h2 id="match-title">Candidate fit</h2></div><button onClick={() => calculate.mutate()} disabled={calculate.isPending}>{calculate.isPending ? 'Calculating…' : latest.data ? 'Recalculate' : 'Calculate match'}</button></div>
+    <div className="row-between"><div><p className="eyebrow">DETERMINISTIC MATCH</p><h2 id="match-title">Candidate fit</h2></div><button onClick={() => calculate.mutate()} disabled={calculate.isPending}>{calculate.isPending ? 'Analyzing…' : latest.data ? 'Rescan evidence' : 'Calculate match'}</button></div>
     <p className="hint">Uses confirmed requirements and candidate evidence with matching-v1. AI does not set scores, gaps, or priorities.</p>
     {calculate.isError && <ErrorNotice message={calculate.error.message} />}
-    {latest.data ? <MatchResultView match={latest.data} historyCount={history.data?.length ?? 1} /> : <div className="empty-match"><strong>No match calculated yet.</strong><p className="muted">A result is stored as an immutable snapshot so future evidence or requirement changes do not rewrite history.</p></div>}
+    {latest.data ? <><MatchResultView match={latest.data} historyCount={history.data?.length ?? 1} /><RecommendationPanel jobId={jobId} items={recommendations.data ?? []} loading={recommendations.isPending} /><ScoreHistory items={scoreHistory.data ?? []} loading={scoreHistory.isPending} /></> : <div className="empty-match"><strong>No match calculated yet.</strong><p className="muted">A result is stored as an immutable snapshot so future evidence or requirement changes do not rewrite history.</p></div>}
+  </section>
+}
+
+function RecommendationPanel({ jobId, items, loading }: { jobId: string; items: RecommendationView[]; loading: boolean }) {
+  const queryClient = useQueryClient()
+  const update = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: RecommendationStatus }) => jobs.updateRecommendation(jobId, id, status),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['job-recommendations', jobId] }),
+  })
+  return <section className="recommendations" aria-labelledby="recommendations-title"><div className="row-between"><h3 id="recommendations-title">Next best actions</h3><span className="hint">Ranked from the latest match</span></div>
+    {loading ? <p className="muted">Loading recommendations…</p> : items.length === 0 ? <p className="muted">Calculate a match to generate recommendations.</p> : <ol>{items.map(item => <li key={item.id} className={'recommendation ' + item.status.toLowerCase()}><span className="recommendation-rank">{item.rank}</span><div><div className="row-between"><strong>{item.title}</strong><select aria-label={'Status for ' + item.title} value={item.status} onChange={event => update.mutate({ id: item.id, status: event.target.value as RecommendationStatus })}>{recommendationStatuses.map(value => <option key={value}>{value}</option>)}</select></div><p>{item.rationale}</p><span className="recommendation-action">{item.action}</span></div></li>)}</ol>}
+    {update.isError && <ErrorNotice message={update.error.message} />}
+  </section>
+}
+
+function ScoreHistory({ items, loading }: { items: ScoreHistoryPoint[]; loading: boolean }) {
+  return <section className="score-history" aria-labelledby="score-history-title"><div className="row-between"><h3 id="score-history-title">Score history</h3><span className="hint">Immutable comparisons</span></div>
+    {loading ? <p className="muted">Loading score history…</p> : items.length === 0 ? <p className="muted">No saved results yet.</p> : <div className="score-timeline">{items.map((item, index) => <article key={item.matchResultId}><span>{index === 0 ? 'Latest' : new Date(item.createdAt).toLocaleDateString()}</span><strong>{item.score === null ? 'Limited' : Math.round(item.score) + '%'}</strong><small className={item.delta === null ? '' : item.delta >= 0 ? 'positive' : 'negative'}>{item.delta === null ? 'Baseline' : (item.delta >= 0 ? '+' : '') + Math.round(item.delta) + ' points'} · coverage {Math.round(item.coverage * 100)}%</small></article>)}</div>}
   </section>
 }
 

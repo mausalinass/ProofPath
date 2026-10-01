@@ -31,9 +31,16 @@ public sealed class S3PrivateFileStore(IAmazonS3 client, string bucket) : IPriva
             bytes.Write(buffer, 0, count);
         }
         await VerifyPrivateBucket(ct); var hash = Convert.ToHexString(SHA256.HashData(bytes.ToArray())); bytes.Position = 0;
-        await client.PutObjectAsync(new PutObjectRequest { BucketName = bucket, Key = objectKey, InputStream = bytes,
-            ContentType = "application/octet-stream", ServerSideEncryptionMethod = ServerSideEncryptionMethod.AES256,
-            AutoCloseStream = false, IfNoneMatch = "*" }, ct);
+        await client.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket,
+            Key = objectKey,
+            InputStream = bytes,
+            ContentType = "application/octet-stream",
+            ServerSideEncryptionMethod = ServerSideEncryptionMethod.AES256,
+            AutoCloseStream = false,
+            IfNoneMatch = "*"
+        }, ct);
         return new StoredPrivateFile(key, bytes.Length, hash);
     }
     public async Task<Stream?> OpenReadAsync(string key, CancellationToken ct)
@@ -63,8 +70,13 @@ public sealed class S3PrivateFileStore(IAmazonS3 client, string bucket) : IPriva
         string? keyMarker = null, versionMarker = null;
         do
         {
-            var page = await client.ListVersionsAsync(new ListVersionsRequest { BucketName = bucket, Prefix = objectKey,
-                KeyMarker = keyMarker, VersionIdMarker = versionMarker }, ct);
+            var page = await client.ListVersionsAsync(new ListVersionsRequest
+            {
+                BucketName = bucket,
+                Prefix = objectKey,
+                KeyMarker = keyMarker,
+                VersionIdMarker = versionMarker
+            }, ct);
             foreach (var version in (page.Versions ?? []).Where(version => version.Key == objectKey))
                 await client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = objectKey, VersionId = version.VersionId }, ct);
             if (page.IsTruncated != true) break;

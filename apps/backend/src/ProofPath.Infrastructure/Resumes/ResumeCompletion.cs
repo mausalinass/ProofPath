@@ -15,9 +15,18 @@ public sealed class ResumeCompletion(ProofPathDbContext database) : IAnalysisCom
         if (resume is null) return;
         var result = ResumeJson.Read<ResumeAnalysisResult>(output.ResultJson);
         ResumeValidation.Validate(result.Draft, result.Source, machine: true);
-        database.ResumeExtractions.Add(new ResumeExtraction { Id = Guid.NewGuid(), ResumeId = resume.Id, MachineJson = output.ResultJson,
-            DraftJson = ResumeJson.Serialize(result.Draft), Model = result.Model, CreatedAt = DateTime.UtcNow,
-            PromptVersion = result.PromptVersion, SchemaVersion = result.SchemaVersion, ExtractionVersion = result.ExtractionVersion });
+        database.ResumeExtractions.Add(new ResumeExtraction
+        {
+            Id = Guid.NewGuid(),
+            ResumeId = resume.Id,
+            MachineJson = output.ResultJson,
+            DraftJson = ResumeJson.Serialize(result.Draft),
+            Model = result.Model,
+            CreatedAt = DateTime.UtcNow,
+            PromptVersion = result.PromptVersion,
+            SchemaVersion = result.SchemaVersion,
+            ExtractionVersion = result.ExtractionVersion
+        });
         resume.Status = "ReadyForReview"; await database.SaveChangesAsync(ct);
     }
 }

@@ -21,15 +21,25 @@ public sealed class GitHubConnectionModelTests(ApiFixture fixture)
         database.CandidateProfiles.Add(new CandidateProfile { Id = profileId, UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         database.ConnectedAccounts.Add(new ConnectedAccount
         {
-            Id = accountId, CandidateProfileId = profileId, ExternalAccountId = Random.Shared.NextInt64(1, long.MaxValue),
-            ExternalLogin = "octocat", ConnectedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            Id = accountId,
+            CandidateProfileId = profileId,
+            ExternalAccountId = Random.Shared.NextInt64(1, long.MaxValue),
+            ExternalLogin = "octocat",
+            ConnectedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         });
         database.GitHubInstallations.Add(new GitHubInstallation
         {
-            Id = Guid.NewGuid(), ConnectedAccountId = accountId, InstallationId = Random.Shared.NextInt64(1, long.MaxValue),
-            TargetAccountId = Random.Shared.NextInt64(1, long.MaxValue), TargetLogin = "octo-org", TargetType = "Organization",
-            RepositorySelection = "selected", PermissionsJson = "{\"metadata\":\"read\",\"contents\":\"read\"}",
-            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            ConnectedAccountId = accountId,
+            InstallationId = Random.Shared.NextInt64(1, long.MaxValue),
+            TargetAccountId = Random.Shared.NextInt64(1, long.MaxValue),
+            TargetLogin = "octo-org",
+            TargetType = "Organization",
+            RepositorySelection = "selected",
+            PermissionsJson = "{\"metadata\":\"read\",\"contents\":\"read\"}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         });
         await database.SaveChangesAsync();
 

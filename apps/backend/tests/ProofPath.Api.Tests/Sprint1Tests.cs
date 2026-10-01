@@ -48,7 +48,7 @@ public sealed class ApiFixture : IAsyncLifetime
         await scope.ServiceProvider.GetRequiredService<ProofPathDbContext>().Database.MigrateAsync();
     }
     public HttpClient Client() => Factory.CreateClient(new WebApplicationFactoryClientOptions
-        { BaseAddress = new Uri("http://localhost"), AllowAutoRedirect = false });
+    { BaseAddress = new Uri("http://localhost"), AllowAutoRedirect = false });
     public async Task DisposeAsync()
     {
         await Factory.DisposeAsync(); await container.DisposeAsync();

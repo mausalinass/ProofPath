@@ -54,13 +54,13 @@ public static class CandidateEndpoints
             var profiles = await database.CandidateProfiles.FromSqlInterpolated($"""SELECT * FROM "CandidateProfiles" WHERE "UserId" = {user.Id} FOR UPDATE""").ToListAsync();
             var profileIds = profiles.Select(profile => profile.Id).ToArray();
             var installationIds = await (from account in database.ConnectedAccounts
-                join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
-                where profileIds.Contains(account.CandidateProfileId)
-                select installation.InstallationId).Distinct().ToArrayAsync(ct);
+                                         join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
+                                         where profileIds.Contains(account.CandidateProfileId)
+                                         select installation.InstallationId).Distinct().ToArrayAsync(ct);
             foreach (var installationId in installationIds) await github.RevokeInstallationAsync(installationId, ct);
             var keys = await database.Resumes.Where(resume => profileIds.Contains(resume.CandidateProfileId)).Select(resume => resume.StorageKey).ToArrayAsync();
             foreach (var key in keys) database.PrivateFileDeletions.Add(new PrivateFileDeletion
-                { Id = Guid.NewGuid(), StorageKey = key, CreatedAt = DateTime.UtcNow, NextAttemptAt = DateTime.UtcNow });
+            { Id = Guid.NewGuid(), StorageKey = key, CreatedAt = DateTime.UtcNow, NextAttemptAt = DateTime.UtcNow });
             await database.SaveChangesAsync();
             var result = await users.DeleteAsync(user);
             if (!result.Succeeded) return Results.Problem("Account deletion could not be completed.", statusCode: 409);

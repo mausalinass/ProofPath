@@ -28,8 +28,12 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
         await database.GitHubConnectionAttempts.Where(item => item.CandidateProfileId == profileId || item.ExpiresAt <= now).ExecuteDeleteAsync(ct);
         database.GitHubConnectionAttempts.Add(new()
         {
-            Id = Guid.NewGuid(), CandidateProfileId = profileId, NonceHash = Hash(nonce),
-            ProtectedPayload = protector.Protect(JsonSerializer.Serialize(state)), CreatedAt = now, ExpiresAt = state.ExpiresAt
+            Id = Guid.NewGuid(),
+            CandidateProfileId = profileId,
+            NonceHash = Hash(nonce),
+            ProtectedPayload = protector.Protect(JsonSerializer.Serialize(state)),
+            CreatedAt = now,
+            ExpiresAt = state.ExpiresAt
         });
         await database.SaveChangesAsync(ct);
         return provider.BuildInstallationUri(nonce);
@@ -71,8 +75,8 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
     public async Task<GitHubConnectionView> StatusAsync(string userId, CancellationToken ct)
     {
         var result = await (from account in Accounts(userId)
-            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
-            select new { account, installation }).SingleOrDefaultAsync(ct);
+                            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
+                            select new { account, installation }).SingleOrDefaultAsync(ct);
         return result is null ? new(false, null, null, null, null) : new(result.account.Status == ConnectedAccountStatus.Active,
             result.account.ExternalLogin, result.installation.TargetLogin, result.account.Status.ToString(), result.account.ConnectedAt);
     }
@@ -80,8 +84,8 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
     public async Task DisconnectAsync(string userId, CancellationToken ct)
     {
         var result = await (from account in Accounts(userId)
-            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
-            select new { account, installation }).SingleOrDefaultAsync(ct) ?? throw new GitHubProblem("GITHUB_NOT_CONNECTED", 404);
+                            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
+                            select new { account, installation }).SingleOrDefaultAsync(ct) ?? throw new GitHubProblem("GITHUB_NOT_CONNECTED", 404);
         if (result.account.Status == ConnectedAccountStatus.Active) await provider.RevokeInstallationAsync(result.installation.InstallationId, ct);
         result.account.Status = ConnectedAccountStatus.Disconnected; result.account.DisconnectedAt = DateTime.UtcNow; result.account.UpdatedAt = DateTime.UtcNow;
         await database.Repositories.Where(item => item.ConnectedAccountId == result.account.Id).ExecuteUpdateAsync(set => set
@@ -130,18 +134,20 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
 
     public async Task<IReadOnlyList<GitHubEvidenceView>> EvidenceAsync(string userId, CancellationToken ct) =>
         await (from evidence in database.EvidenceItems.AsNoTracking()
-         join analysis in database.RepositoryAnalyses on evidence.RepositoryAnalysisId equals analysis.Id
-         join repository in database.Repositories on analysis.RepositoryId equals repository.Id
-         where database.CandidateProfiles.Any(profile => profile.Id == evidence.CandidateProfileId && profile.UserId == userId)
-         orderby evidence.ObservedAt descending
-         select new GitHubEvidenceView(evidence.Id, repository.Id, repository.FullName, evidence.SkillId, evidence.OriginalTerm,
-             evidence.EvidenceType, evidence.Context, evidence.Strength, evidence.ExtractionConfidence, evidence.Lifecycle,
-             evidence.RevisionSha!, evidence.SourcePath, evidence.Detector!, evidence.ObservedAt)).ToArrayAsync(ct);
+               join analysis in database.RepositoryAnalyses on evidence.RepositoryAnalysisId equals analysis.Id
+               join repository in database.Repositories on analysis.RepositoryId equals repository.Id
+               where database.CandidateProfiles.Any(profile => profile.Id == evidence.CandidateProfileId && profile.UserId == userId)
+               orderby evidence.ObservedAt descending
+               select new GitHubEvidenceView(evidence.Id, repository.Id, repository.FullName, evidence.SkillId, evidence.OriginalTerm,
+                   evidence.EvidenceType, evidence.Context, evidence.Strength, evidence.ExtractionConfidence, evidence.Lifecycle,
+                   evidence.RevisionSha!, evidence.SourcePath, evidence.Detector!, evidence.ObservedAt)).ToArrayAsync(ct);
 
     private async Task<(ConnectedAccount Account, GitHubInstallation Installation)> Active(string userId, CancellationToken ct)
     {
-        var result = await (from account in Accounts(userId) where account.Status == ConnectedAccountStatus.Active
-            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId select new { account, installation }).SingleOrDefaultAsync(ct);
+        var result = await (from account in Accounts(userId)
+                            where account.Status == ConnectedAccountStatus.Active
+                            join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
+                            select new { account, installation }).SingleOrDefaultAsync(ct);
         return result is null ? throw new GitHubProblem("GITHUB_NOT_CONNECTED", 409) : (result.account, result.installation);
     }
     private async Task Synchronize(string userId, ConnectedAccount account, GitHubInstallation installation, CancellationToken ct)
@@ -172,10 +178,10 @@ public sealed class RepositoryAnalysisHandler(ProofPathDbContext database, IGitH
     public async Task<AnalysisOutput> ProcessAsync(AnalysisLease lease, CancellationToken ct)
     {
         var input = await (from repository in database.Repositories.AsNoTracking()
-            join account in database.ConnectedAccounts.AsNoTracking() on repository.ConnectedAccountId equals account.Id
-            join installation in database.GitHubInstallations.AsNoTracking() on account.Id equals installation.ConnectedAccountId
-            where repository.Id == lease.ResourceId && repository.CandidateProfileId == lease.CandidateProfileId && repository.IncludedForAnalysis && account.Status == ConnectedAccountStatus.Active
-            select new { repository, installation.InstallationId }).SingleOrDefaultAsync(ct) ?? throw new AnalysisFailure("GITHUB_ACCESS_LOST", false);
+                           join account in database.ConnectedAccounts.AsNoTracking() on repository.ConnectedAccountId equals account.Id
+                           join installation in database.GitHubInstallations.AsNoTracking() on account.Id equals installation.ConnectedAccountId
+                           where repository.Id == lease.ResourceId && repository.CandidateProfileId == lease.CandidateProfileId && repository.IncludedForAnalysis && account.Status == ConnectedAccountStatus.Active
+                           select new { repository, installation.InstallationId }).SingleOrDefaultAsync(ct) ?? throw new AnalysisFailure("GITHUB_ACCESS_LOST", false);
         await database.Repositories.Where(item => item.Id == lease.ResourceId).ExecuteUpdateAsync(set => set.SetProperty(item => item.ScanStatus, RepositoryScanStatus.Processing), ct);
         GitHubRepositorySnapshot snapshot;
         try { snapshot = await provider.ReadSnapshotAsync(input.InstallationId, input.repository.GitHubId, ct); }
@@ -199,20 +205,49 @@ public sealed class RepositoryAnalysisCompletion(ProofPathDbContext database) : 
         var repository = await database.Repositories.SingleOrDefaultAsync(item => item.Id == lease.ResourceId && item.CandidateProfileId == lease.CandidateProfileId, ct); if (repository is null) return;
         var identity = $"{repository.Id}:{result.RevisionSha}:{result.ExtractionVersion}:{result.AnalysisPolicyVersion}";
         if (await database.RepositoryAnalyses.AnyAsync(item => item.ScanIdentity == identity, ct)) return;
-        var analysis = new RepositoryAnalysis { Id = Guid.NewGuid(), RepositoryId = repository.Id, AnalysisJobId = lease.Id, RevisionSha = result.RevisionSha,
-            ExtractionVersion = result.ExtractionVersion, AnalysisPolicyVersion = result.AnalysisPolicyVersion, ScanIdentity = identity,
-            Status = Enum.Parse<RepositoryScanStatus>(result.Status), CoverageJson = JsonSerializer.Serialize(result.Coverage), WarningsJson = JsonSerializer.Serialize(result.Warnings), ResultJson = output.ResultJson, CreatedAt = DateTime.UtcNow };
+        var analysis = new RepositoryAnalysis
+        {
+            Id = Guid.NewGuid(),
+            RepositoryId = repository.Id,
+            AnalysisJobId = lease.Id,
+            RevisionSha = result.RevisionSha,
+            ExtractionVersion = result.ExtractionVersion,
+            AnalysisPolicyVersion = result.AnalysisPolicyVersion,
+            ScanIdentity = identity,
+            Status = Enum.Parse<RepositoryScanStatus>(result.Status),
+            CoverageJson = JsonSerializer.Serialize(result.Coverage),
+            WarningsJson = JsonSerializer.Serialize(result.Warnings),
+            ResultJson = output.ResultJson,
+            CreatedAt = DateTime.UtcNow
+        };
         database.RepositoryAnalyses.Add(analysis);
         var project = await database.Projects.SingleOrDefaultAsync(item => item.RepositoryId == repository.Id, ct);
         if (project is null) { project = new Project { Id = Guid.NewGuid(), CandidateProfileId = lease.CandidateProfileId, RepositoryId = repository.Id, Name = repository.Name, SourceUrl = repository.HtmlUrl, Detail = $"GitHub repository {repository.FullName}", SourceBlockId = result.RevisionSha, Quote = repository.FullName }; database.Projects.Add(project); }
         var catalogSkillIds = await database.Skills.AsNoTracking().Select(item => item.Id).ToHashSetAsync(ct);
         foreach (var candidate in result.Evidence)
-            database.EvidenceItems.Add(new EvidenceItem { Id = Guid.NewGuid(), CandidateProfileId = lease.CandidateProfileId, RepositoryAnalysisId = analysis.Id,
-                ProjectId = project.Id, SkillId = catalogSkillIds.Contains(candidate.SkillKey) ? candidate.SkillKey : null, OriginalTerm = candidate.OriginalTerm, Context = candidate.Detail,
-                Strength = candidate.Strength, ExtractionConfidence = candidate.ExtractionConfidence, EvidenceType = candidate.EvidenceType,
-                Lifecycle = "Active", SourceBlockId = candidate.Provenance.Path, Quote = candidate.Detail, ObservedAt = candidate.Provenance.ObservedAt,
-                RevisionSha = candidate.Provenance.RevisionSha, SourcePath = candidate.Provenance.Path, StartLine = candidate.Provenance.StartLine,
-                EndLine = candidate.Provenance.EndLine, Detector = candidate.Provenance.Detector, DetectorVersion = candidate.Provenance.DetectorVersion });
+            database.EvidenceItems.Add(new EvidenceItem
+            {
+                Id = Guid.NewGuid(),
+                CandidateProfileId = lease.CandidateProfileId,
+                RepositoryAnalysisId = analysis.Id,
+                ProjectId = project.Id,
+                SkillId = catalogSkillIds.Contains(candidate.SkillKey) ? candidate.SkillKey : null,
+                OriginalTerm = candidate.OriginalTerm,
+                Context = candidate.Detail,
+                Strength = candidate.Strength,
+                ExtractionConfidence = candidate.ExtractionConfidence,
+                EvidenceType = candidate.EvidenceType,
+                Lifecycle = "Active",
+                SourceBlockId = candidate.Provenance.Path,
+                Quote = candidate.Detail,
+                ObservedAt = candidate.Provenance.ObservedAt,
+                RevisionSha = candidate.Provenance.RevisionSha,
+                SourcePath = candidate.Provenance.Path,
+                StartLine = candidate.Provenance.StartLine,
+                EndLine = candidate.Provenance.EndLine,
+                Detector = candidate.Provenance.Detector,
+                DetectorVersion = candidate.Provenance.DetectorVersion
+            });
         repository.LastRevisionSha = result.RevisionSha; repository.LastScanAt = DateTime.UtcNow; repository.ScanStatus = analysis.Status; repository.CoverageJson = analysis.CoverageJson;
         await database.SaveChangesAsync(ct);
     }

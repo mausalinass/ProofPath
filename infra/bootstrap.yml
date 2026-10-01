@@ -1,0 +1,12 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Safe one-time container registry bootstrap for ProofPath. IAM deployment roles are deliberately external.
+Resources:
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties: { RepositoryName: proofpath-api, ImageTagMutability: IMMUTABLE, ImageScanningConfiguration: { ScanOnPush: true } }
+  WorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties: { RepositoryName: proofpath-worker, ImageTagMutability: IMMUTABLE, ImageScanningConfiguration: { ScanOnPush: true } }
+Outputs:
+  ApiRepositoryUri: { Value: !GetAtt ApiRepository.RepositoryUri }
+  WorkerRepositoryUri: { Value: !GetAtt WorkerRepository.RepositoryUri }

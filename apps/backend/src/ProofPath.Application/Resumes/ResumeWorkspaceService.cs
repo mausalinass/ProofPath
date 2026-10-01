@@ -10,8 +10,14 @@ public sealed class ResumeWorkspaceService(IResumePersistence database, IPrivate
     public async Task<ResumeUploadResult> UploadAsync(string userId, string fileName, string contentType, byte[] content, CancellationToken ct)
     {
         extractor.Validate(content, fileName, contentType);
-        var resume = new Resume { Id = Guid.NewGuid(), FileName = Path.GetFileName(fileName.Replace('\\', '/')),
-            StorageKey = Guid.NewGuid().ToString("N"), ContentType = contentType, CreatedAt = DateTime.UtcNow };
+        var resume = new Resume
+        {
+            Id = Guid.NewGuid(),
+            FileName = Path.GetFileName(fileName.Replace('\\', '/')),
+            StorageKey = Guid.NewGuid().ToString("N"),
+            ContentType = contentType,
+            CreatedAt = DateTime.UtcNow
+        };
         // Persist the key before touching object storage. Interrupted uploads remain discoverable for cleanup.
         await database.ReserveAsync(userId, resume, ct);
         try
@@ -88,15 +94,36 @@ public sealed class ResumeWorkspaceService(IResumePersistence database, IPrivate
         foreach (var skill in draft.Skills.Distinct())
         {
             aliases.TryGetValue(skill.Term.Trim().ToUpperInvariant(), out var skillId);
-            database.AddEvidence(new EvidenceItem { Id = Guid.NewGuid(), CandidateProfileId = transaction.CandidateProfileId, ResumeExtractionId = extraction.Id,
-                SkillId = skillId, OriginalTerm = skill.Term, Context = skill.Context, SourceBlockId = skill.SourceBlockId, Quote = skill.Quote,
+            database.AddEvidence(new EvidenceItem
+            {
+                Id = Guid.NewGuid(),
+                CandidateProfileId = transaction.CandidateProfileId,
+                ResumeExtractionId = extraction.Id,
+                SkillId = skillId,
+                OriginalTerm = skill.Term,
+                Context = skill.Context,
+                SourceBlockId = skill.SourceBlockId,
+                Quote = skill.Quote,
                 // Resume statements remain self-reported; provider labels never assign implementation strength.
-                Strength = "Weak", UserCorrected = !machine.Draft.Skills.Contains(skill), ObservedAt = now });
+                Strength = "Weak",
+                UserCorrected = !machine.Draft.Skills.Contains(skill),
+                ObservedAt = now
+            });
         }
         foreach (var behavior in draft.Behaviors.Distinct())
-            database.AddBehavior(new BehavioralEvidenceItem { Id = Guid.NewGuid(), CandidateProfileId = transaction.CandidateProfileId, ResumeExtractionId = extraction.Id,
-                ThemeKey = behavior.ThemeKey, Statement = behavior.Statement, SourceBlockId = behavior.SourceBlockId, Quote = behavior.Quote,
-                Basis = "Explicit", Strength = BehaviorEvidenceRules.Strength(behavior.ThemeKey, behavior.Statement)!, UserCorrected = !machine.Draft.Behaviors.Contains(behavior) });
+            database.AddBehavior(new BehavioralEvidenceItem
+            {
+                Id = Guid.NewGuid(),
+                CandidateProfileId = transaction.CandidateProfileId,
+                ResumeExtractionId = extraction.Id,
+                ThemeKey = behavior.ThemeKey,
+                Statement = behavior.Statement,
+                SourceBlockId = behavior.SourceBlockId,
+                Quote = behavior.Quote,
+                Basis = "Explicit",
+                Strength = BehaviorEvidenceRules.Strength(behavior.ThemeKey, behavior.Statement)!,
+                UserCorrected = !machine.Draft.Behaviors.Contains(behavior)
+            });
         extraction.ConfirmedAt = now; extraction.Active = true;
         var resume = await database.FindAsync(userId, id, ct) ?? throw new ResumeProblem("RESOURCE_REMOVED", 404);
         resume.Status = "Confirmed";

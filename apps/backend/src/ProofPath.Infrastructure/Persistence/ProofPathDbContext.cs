@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ProofPath.Domain.Entities;
 using ProofPath.Infrastructure.Identity;
 
 namespace ProofPath.Infrastructure.Persistence;
 
-public class ProofPathDbContext : IdentityDbContext<ApplicationUser>
+public class ProofPathDbContext : IdentityDbContext<ApplicationUser>, IDataProtectionKeyContext
 {
     public ProofPathDbContext(DbContextOptions<ProofPathDbContext> options)
         : base(options)
@@ -40,6 +41,9 @@ public class ProofPathDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<MatchResult> MatchResults => Set<MatchResult>();
     public DbSet<RequirementMatchRecord> RequirementMatchRecords => Set<RequirementMatchRecord>();
     public DbSet<RequirementMatchEvidenceRecord> RequirementMatchEvidenceRecords => Set<RequirementMatchEvidenceRecord>();
+    public DbSet<JobTracking> JobTrackings => Set<JobTracking>();
+    public DbSet<MatchRecommendation> MatchRecommendations => Set<MatchRecommendation>();
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -49,6 +53,7 @@ public class ProofPathDbContext : IdentityDbContext<ApplicationUser>
         builder.ConfigureGitHub();
         builder.ConfigureJobs();
         builder.ConfigureMatching();
+        builder.ConfigureRecommendations();
 
         builder.Entity<CandidateProfile>(entity =>
         {

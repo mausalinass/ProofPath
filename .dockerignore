@@ -1,0 +1,11 @@
+.git
+.github
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/TestResults
+.env*
+!.env.example
+**/*.user
+**/*.pem

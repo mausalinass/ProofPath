@@ -267,8 +267,10 @@ public static class MatchingEngine
 
         double Presence(RequirementMatchDraft item) => item.Classification switch
         {
-            MatchClassification.Strong => 1, MatchClassification.Moderate => .90,
-            MatchClassification.Weak => .70, _ => 0
+            MatchClassification.Strong => 1,
+            MatchClassification.Moderate => .90,
+            MatchClassification.Weak => .70,
+            _ => 0
         };
         double TechnicalValue(RequirementMatchDraft item) => 100 * Presence(item) *
             (item.Relation == MatchSemanticRelation.RelatedOnly ? config.RelatedScore : 1);

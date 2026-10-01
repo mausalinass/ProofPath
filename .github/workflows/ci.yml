@@ -2,11 +2,16 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -14,24 +19,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
+        with: { dotnet-version: '10.0.x' }
       - run: dotnet restore apps/backend/ProofPath.slnx
       - run: dotnet build apps/backend/ProofPath.slnx --no-restore
       - run: dotnet test apps/backend/ProofPath.slnx --no-build
 
   frontend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
+    defaults: { run: { working-directory: apps/web } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+        with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -42,12 +41,8 @@ jobs:
     services:
       postgres:
         image: postgres:18-alpine
-        env:
-          POSTGRES_USER: proofpath_e2e
-          POSTGRES_PASSWORD: isolated-e2e-only
-          POSTGRES_DB: proofpath_e2e
-        ports:
-          - 5432:5432
+        env: { POSTGRES_USER: proofpath_e2e, POSTGRES_PASSWORD: isolated-e2e-only, POSTGRES_DB: proofpath_e2e }
+        ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U proofpath_e2e -d proofpath_e2e"
           --health-interval 5s --health-timeout 5s --health-retries 10
@@ -57,16 +52,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
+        with: { dotnet-version: '10.0.x' }
       - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+        with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - run: npm ci
         working-directory: apps/web
       - run: npm exec playwright install --with-deps chromium
         working-directory: apps/web
       - run: npm exec playwright test
         working-directory: apps/web
+
+  containers-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - run: dotnet list apps/backend/ProofPath.slnx package --vulnerable --include-transitive
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm audit --audit-level=high
+        working-directory: apps/web
+      - run: docker build -f apps/backend/Dockerfile.api -t proofpath-api:${{ github.sha }} .
+      - run: docker build -f apps/backend/Dockerfile.worker -t proofpath-worker:${{ github.sha }} .
+      - run: docker build -f apps/web/Dockerfile -t proofpath-web:${{ github.sha }} .

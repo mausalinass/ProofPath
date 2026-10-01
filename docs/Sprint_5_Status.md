@@ -4,7 +4,7 @@ Fecha de cierre local: 2026-09-29.
 
 ## Estado
 
-Implementación local completada. Sprint 6 todavía no comenzó.
+Implementación local completada. Sprint 6 se completó el 30 de septiembre de 2026.
 
 ## Alcance implementado
 
@@ -48,4 +48,4 @@ La migración fue revisada como SQL, aplicada a PostgreSQL local y conserva Iden
 
 ## Próximo bloque
 
-Sprint 6: recomendaciones deterministas y tracking, vinculadas a un `MatchResult` inmutable. No iniciado. El gate externo de GitHub del Sprint 3 quedó completado el 30 de septiembre de 2026.
+Sprint 6 completado: recomendaciones deterministas, tracking, reanálisis e historial comparativo vinculados a `MatchResult` inmutables. El gate externo de GitHub del Sprint 3 quedó completado el 30 de septiembre de 2026.

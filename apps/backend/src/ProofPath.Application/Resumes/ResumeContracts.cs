@@ -58,8 +58,12 @@ public interface IPrivateFileCleanup { Task RunAsync(CancellationToken ct); }
 public static class ResumeJson
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true,
-        Converters = { new JsonStringEnumConverter() } };
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
     public static T Read<T>(string value) => JsonSerializer.Deserialize<T>(value, Options) ?? throw new AnalysisFailure("INVALID_EXTRACTION", false);
 }

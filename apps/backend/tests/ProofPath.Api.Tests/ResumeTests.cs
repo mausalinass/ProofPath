@@ -51,14 +51,16 @@ public static class ResumeFixtures
 public sealed class DocumentParserTests
 {
     private readonly DocumentTextExtractor parser = new();
-    [Fact] public void PdfAndDocxProduceGroundedSourceBlocks()
+    [Fact]
+    public void PdfAndDocxProduceGroundedSourceBlocks()
     {
         var pdf = parser.Extract(ResumeFixtures.Pdf(), DocumentTextExtractor.Pdf, default);
         Assert.Contains("Engineer", pdf.Blocks[0].Text); Assert.Equal(1, pdf.Blocks[0].Page);
         var docx = parser.Extract(ResumeFixtures.Docx(), DocumentTextExtractor.Docx, default);
         Assert.Equal(ResumeFixtures.Text, docx.Blocks[0].Text); Assert.Contains("p1", docx.Blocks[0].Id);
     }
-    [Fact] public void ImageOnlyPdfFailsWithActionableCode()
+    [Fact]
+    public void ImageOnlyPdfFailsWithActionableCode()
     {
         Assert.Equal("NO_EXTRACTABLE_TEXT", Assert.Throws<AnalysisFailure>(() => parser.Extract(ResumeFixtures.Pdf(""), DocumentTextExtractor.Pdf, default)).Code);
     }
@@ -67,13 +69,15 @@ public sealed class DocumentParserTests
     [InlineData("word/embeddings/object.bin")]
     [InlineData("../escape")]
     public void RejectsUnsafeDocx(string name) => Assert.Throws<ResumeProblem>(() => parser.Validate(ResumeFixtures.Docx(unsafeName: name), "resume.docx", DocumentTextExtractor.Docx));
-    [Fact] public void RejectsMimeMismatchCorruptPdfAndOversize()
+    [Fact]
+    public void RejectsMimeMismatchCorruptPdfAndOversize()
     {
         Assert.Throws<ResumeProblem>(() => parser.Validate(ResumeFixtures.Docx(), "resume.pdf", DocumentTextExtractor.Pdf));
         Assert.Throws<ResumeProblem>(() => parser.Validate(Encoding.UTF8.GetBytes("%PDF-not-a-document"), "resume.pdf", DocumentTextExtractor.Pdf));
         Assert.Equal(413, Assert.Throws<ResumeProblem>(() => parser.Validate(new byte[ResumeLimits.MaxBytes + 1], "resume.pdf", DocumentTextExtractor.Pdf)).Status);
     }
-    [Fact] public void GroundingRejectsInventedDatesAndInvalidThemeOrScore()
+    [Fact]
+    public void GroundingRejectsInventedDatesAndInvalidThemeOrScore()
     {
         var source = parser.Extract(ResumeFixtures.Docx(), DocumentTextExtractor.Docx, default); var draft = ResumeFixtures.Draft(source);
         ResumeValidation.Validate(draft, source, true);
@@ -130,7 +134,8 @@ public sealed class ResumeWorkflowTests(ApiFixture fixture) : IAsyncLifetime
         public Task<LlmResumeResult> ExtractResumeAsync(DocumentText source, CancellationToken ct) =>
             Task.FromResult(new LlmResumeResult(ResumeFixtures.Draft(source), "fixture-only", 100, 100, 1));
     }
-    [Fact] public async Task UploadReviewConfirmIsIdempotentAndReplacementPreservesHistory()
+    [Fact]
+    public async Task UploadReviewConfirmIsIdempotentAndReplacementPreservesHistory()
     {
         using var client = await User(); var first = await Upload(client); await Complete(first);
         var path = $"/api/v1/resumes/{first.Id}/extraction";
@@ -153,7 +158,8 @@ public sealed class ResumeWorkflowTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal("Engineer", ResumeJson.Read<ResumeAnalysisResult>(extraction.MachineJson).Draft.Facts[0].Name);
         Assert.Equal("react", (await db.EvidenceItems.SingleAsync(item => item.ResumeExtractionId == extraction.Id)).SkillId);
     }
-    [Fact] public async Task OwnershipCsrfAndDeletionCoverFilesAndDerivedData()
+    [Fact]
+    public async Task OwnershipCsrfAndDeletionCoverFilesAndDerivedData()
     {
         using var a = await User(); using var b = await User(); using var anonymous = fixture.Client();
         Assert.Equal(HttpStatusCode.BadRequest, (await a.PostAsync("/api/v1/resumes/", File())).StatusCode);
@@ -175,7 +181,8 @@ public sealed class ResumeWorkflowTests(ApiFixture fixture) : IAsyncLifetime
         await scope.ServiceProvider.GetRequiredService<IPrivateFileCleanup>().RunAsync(default);
         Assert.Null(await scope.ServiceProvider.GetRequiredService<IPrivateFileStore>().OpenReadAsync(resume.StorageKey, default));
     }
-    [Fact] public async Task ProviderFailurePreservesDownloadWithoutPublishingFacts()
+    [Fact]
+    public async Task ProviderFailurePreservesDownloadWithoutPublishingFacts()
     {
         using var client = await User(); var upload = await Upload(client);
         await using var scope = fixture.Factory.Services.CreateAsyncScope(); var queue = scope.ServiceProvider.GetRequiredService<IAnalysisQueue>();
@@ -185,7 +192,8 @@ public sealed class ResumeWorkflowTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/v1/resumes/{upload.Id}/extraction")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await Write(client, HttpMethod.Post, $"/api/v1/resumes/{upload.Id}/confirm", new { revision = 1 })).StatusCode);
     }
-    [Fact] public async Task CorruptUploadCreatesNoMetadata()
+    [Fact]
+    public async Task CorruptUploadCreatesNoMetadata()
     {
         using var client = await User();
         Assert.Equal(HttpStatusCode.BadRequest, (await Write(client, HttpMethod.Post, "/api/v1/resumes/", File([1, 2, 3]))).StatusCode);
