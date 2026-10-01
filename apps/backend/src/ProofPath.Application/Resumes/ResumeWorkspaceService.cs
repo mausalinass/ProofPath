@@ -1,15 +1,19 @@
 using ProofPath.Application.Analysis;
 using ProofPath.Application.Files;
+using ProofPath.Application.FileSecurity;
 using ProofPath.Domain.Entities;
 
 namespace ProofPath.Application.Resumes;
 
 public sealed class ResumeWorkspaceService(IResumePersistence database, IPrivateFileStore files, IDocumentTextExtractor extractor,
-    IAnalysisQueue queue) : IResumeWorkspace, IResumeInputReader
+    IAnalysisQueue queue, IPrivateFileSecurityScanner securityScanner) : IResumeWorkspace, IResumeInputReader
 {
     public async Task<ResumeUploadResult> UploadAsync(string userId, string fileName, string contentType, byte[] content, CancellationToken ct)
     {
         extractor.Validate(content, fileName, contentType);
+        try { await securityScanner.ScanAsync(content, ct); }
+        catch (UnsafePrivateFileException) { throw new ResumeProblem("MALWARE_DETECTED", 422); }
+        catch (PrivateFileSecurityUnavailableException) { throw new ResumeProblem("FILE_SECURITY_UNAVAILABLE", 503); }
         var resume = new Resume
         {
             Id = Guid.NewGuid(),

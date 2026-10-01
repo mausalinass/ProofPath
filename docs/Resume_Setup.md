@@ -69,7 +69,7 @@ Configuración no secreta:
 }
 ```
 
-`FileSecurityReviewed=true` documenta únicamente la revisión y prueba local con archivos sintéticos. No representa antivirus ni aprobación automática de privacidad o producción. P11 debe cerrarse antes de datos públicos, staging compartido o producción. Las credenciales permanecen fuera de appsettings mediante el perfil/cadena normal del SDK. No cambiar el proveedor sobre archivos locales existentes sin una migración de objetos revisada.
+En staging y producción, `FileSecurityReviewed=true` solo es válido junto con `FileSecurity:Provider=ClamAV`. La API analiza cada archivo antes de reservar metadata o subirlo y falla de forma segura si ClamAV detecta malware o no responde. Las credenciales permanecen fuera de appsettings mediante el perfil/cadena normal del SDK.
 
 ## Pruebas
 

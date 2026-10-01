@@ -7,15 +7,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes: [proofpath-db:/var/lib/postgresql/data]
     healthcheck: { test: [CMD-SHELL, "pg_isready -U proofpath -d proofpath"], interval: 5s, timeout: 5s, retries: 10 }
+  clamav:
+    image: clamav/clamav@sha256:ebec5bc138401b36ae987caa1a3fa3c3b2a21ed3d51f0bfa5852825e663e67b0
+    healthcheck: { test: [CMD-SHELL, "clamdscan --ping 1 --wait || exit 1"], interval: 30s, timeout: 10s, retries: 10, start_period: 180s }
   api:
     build: { context: ., dockerfile: apps/backend/Dockerfile.api }
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Host=postgres;Database=proofpath;Username=proofpath;Password=${POSTGRES_PASSWORD}
       Storage__PrivateRoot: /data/resumes
+      FileSecurity__Provider: ClamAV
+      FileSecurity__ClamAvHost: clamav
       Frontend__Origins__0: http://localhost:8080
     volumes: [proofpath-resumes:/data/resumes]
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on: { postgres: { condition: service_healthy }, clamav: { condition: service_healthy } }
     ports: ["5001:8080"]
   worker:
     build: { context: ., dockerfile: apps/backend/Dockerfile.worker }

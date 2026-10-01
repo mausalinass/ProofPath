@@ -1,7 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Private S3 and CloudFront hosting for the ProofPath single-page application.
+Description: Private S3 and CloudFront hosting with a private VPC origin for the ProofPath API.
 Parameters:
+  EnvironmentName: { Type: String, Default: staging, AllowedPattern: '[a-z0-9-]+' }
   ApiDomain: { Type: String }
+  ApiLoadBalancerArn: { Type: String }
   OriginVerifySecret: { Type: String, NoEcho: true, MinLength: 32 }
 Resources:
   WebBucket:
@@ -11,11 +13,15 @@ Resources:
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
-    Properties: { OriginAccessControlConfig: { Name: proofpath-web, OriginAccessControlOriginType: s3, SigningBehavior: always, SigningProtocol: sigv4 } }
+    Properties: { OriginAccessControlConfig: { Name: !Sub 'proofpath-${EnvironmentName}-web', OriginAccessControlOriginType: s3, SigningBehavior: always, SigningProtocol: sigv4 } }
+  ApiVpcOrigin:
+    Type: AWS::CloudFront::VpcOrigin
+    Properties:
+      VpcOriginEndpointConfig: { Arn: !Ref ApiLoadBalancerArn, HTTPPort: 80, Name: !Sub 'proofpath-${EnvironmentName}-api-origin', OriginProtocolPolicy: http-only }
   SpaRewrite:
     Type: AWS::CloudFront::Function
     Properties:
-      Name: proofpath-spa-rewrite
+      Name: !Sub 'proofpath-${EnvironmentName}-spa-rewrite'
       AutoPublish: true
       FunctionConfig: { Comment: Rewrite client routes to index without masking API errors, Runtime: cloudfront-js-2.0 }
       FunctionCode: |
@@ -36,7 +42,7 @@ Resources:
           - Id: api
             DomainName: !Ref ApiDomain
             OriginCustomHeaders: [{ HeaderName: X-ProofPath-Origin, HeaderValue: !Ref OriginVerifySecret }]
-            CustomOriginConfig: { HTTPPort: 80, OriginProtocolPolicy: http-only }
+            VpcOriginConfig: { VpcOriginId: !GetAtt ApiVpcOrigin.Id, OriginKeepaliveTimeout: 5, OriginReadTimeout: 30 }
         DefaultCacheBehavior:
           TargetOriginId: web
           ViewerProtocolPolicy: redirect-to-https
@@ -57,9 +63,7 @@ Resources:
             Principal: { Service: cloudfront.amazonaws.com }
             Action: s3:GetObject
             Resource: !Sub '${WebBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+            Condition: { StringEquals: { 'AWS:SourceArn': !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}' } }
 Outputs:
   PublicUrl: { Value: !Sub 'https://${Distribution.DomainName}' }
   WebBucketName: { Value: !Ref WebBucket }

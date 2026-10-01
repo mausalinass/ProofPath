@@ -39,7 +39,7 @@ El flujo de Résumé Intelligence está implementado y verificado localmente con
 
 ## Límites reales y gates abiertos
 
-- La validación de archivos reduce riesgos, pero **no es antivirus**. El scanner/aislamiento definitivo de producción de P11 sigue pendiente. El modo S3 exige `Storage:FileSecurityReviewed=true` como gate operativo; no debe activarse sin la revisión correspondiente.
+- El scanner ClamAV obligatorio analiza el documento antes de persistirlo. Malware y fallos del scanner se rechazan; el modo S3 exige además `Storage:FileSecurityReviewed=true`.
 - Parser acotado a 100 páginas PDF, 1.000 entradas ZIP, 40 MB descomprimidos, 10 MB por entrada XML, 2.000 source blocks y 120.000 caracteres. Son guardas técnicas de esta implementación. Los documentos que exceden el análisis fallan de forma explícita; no se truncan silenciosamente.
 - PdfPig es síncrono: se respeta cancelación entre páginas, pero no hay terminación forzada de un parse que se atasque dentro de una página. El aislamiento del parser antes de exposición pública requiere revisión de P11.
 - PDF siempre advierte revisar el orden de lectura; imágenes no analizadas generan warnings. DOCX cubre cuerpo/tablas/text boxes, headers y footers mediante párrafos XML; imágenes no se interpretan.

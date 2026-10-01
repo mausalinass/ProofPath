@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ProofPath staging foundation: isolated origin, database, private storage, container registries and GitHub OIDC deployment roles.'
+Parameters:
+  EnvironmentName: { Type: String, Default: staging, AllowedPattern: '[a-z0-9-]+' }
+  GitHubOwner: { Type: String, Default: mausalinass }
+  GitHubRepository: { Type: String, Default: ProofPath }
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Default: pl-b6a144df
+    Description: AWS-managed com.amazonaws.global.cloudfront.origin-facing prefix list for us-east-2.
+  BudgetAlertEmail:
+    Type: String
+    Default: ''
+    Description: Optional email for an AWS monthly cost alert.
+Conditions:
+  HasBudgetAlertEmail: !Not [!Equals [!Ref BudgetAlertEmail, '']]
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{ Key: Name, Value: !Sub 'proofpath-${EnvironmentName}' }]
+  InternetGateway: { Type: AWS::EC2::InternetGateway }
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref InternetGateway }
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: { VpcId: !Ref Vpc, AvailabilityZone: !Select [0, !GetAZs ''], CidrBlock: 10.42.0.0/24, MapPublicIpOnLaunch: true, Tags: [{ Key: Name, Value: proofpath-public-a }] }
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: { VpcId: !Ref Vpc, AvailabilityZone: !Select [1, !GetAZs ''], CidrBlock: 10.42.1.0/24, MapPublicIpOnLaunch: true, Tags: [{ Key: Name, Value: proofpath-public-b }] }
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: { VpcId: !Ref Vpc, AvailabilityZone: !Select [0, !GetAZs ''], CidrBlock: 10.42.10.0/24, MapPublicIpOnLaunch: false, Tags: [{ Key: Name, Value: proofpath-private-a }] }
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: { VpcId: !Ref Vpc, AvailabilityZone: !Select [1, !GetAZs ''], CidrBlock: 10.42.11.0/24, MapPublicIpOnLaunch: false, Tags: [{ Key: Name, Value: proofpath-private-b }] }
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref Vpc }
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties: { RouteTableId: !Ref PublicRouteTable, DestinationCidrBlock: 0.0.0.0/0, GatewayId: !Ref InternetGateway }
+  PublicAssociationA: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PublicSubnetA, RouteTableId: !Ref PublicRouteTable } }
+  PublicAssociationB: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PublicSubnetB, RouteTableId: !Ref PublicRouteTable } }
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref Vpc }
+  PrivateAssociationA: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PrivateSubnetA, RouteTableId: !Ref PrivateRouteTable } }
+  PrivateAssociationB: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PrivateSubnetB, RouteTableId: !Ref PrivateRouteTable } }
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CloudFront VPC origin to internal ALB only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 80, ToPort: 80, SourcePrefixListId: !Ref CloudFrontOriginPrefixListId }]
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal ALB to ProofPath tasks only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup }]
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ProofPath tasks to PostgreSQL only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref TaskSecurityGroup }]
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: { DBSubnetGroupDescription: ProofPath isolated database subnets, SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB] }
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: postgres
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      MaxAllocatedStorage: 100
+      StorageType: gp3
+      StorageEncrypted: true
+      DBName: proofpath
+      MasterUsername: proofpath
+      ManageMasterUserPassword: true
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+      MultiAZ: false
+  ResumeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      LifecycleConfiguration: { Rules: [{ Id: abort-incomplete-uploads, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }] }
+  ApplicationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'proofpath/${EnvironmentName}/application'
+      Description: Populate OpenAIApiKey, GitHubAppId, GitHubAppSlug and GitHubPrivateKeyPem before deployment.
+      GenerateSecretString:
+        SecretStringTemplate: '{"OpenAIApiKey":"REPLACE","GitHubAppId":"REPLACE","GitHubAppSlug":"REPLACE","GitHubPrivateKeyPem":"REPLACE"}'
+        GenerateStringKey: BootstrapNonce
+        ExcludePunctuation: true
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties: { RepositoryName: proofpath-api, ImageTagMutability: IMMUTABLE, ImageScanningConfiguration: { ScanOnPush: true } }
+  WorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties: { RepositoryName: proofpath-worker, ImageTagMutability: IMMUTABLE, ImageScanningConfiguration: { ScanOnPush: true } }
+  EcsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'proofpath-${EnvironmentName}-ecs-execution'
+      AssumeRolePolicyDocument: { Version: '2012-10-17', Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: 'sts:AssumeRole' }] }
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: ReadProofPathSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement: [{ Effect: Allow, Action: 'secretsmanager:GetSecretValue', Resource: [!Ref ApplicationSecret, !GetAtt Database.MasterUserSecret.SecretArn] }]
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'proofpath-${EnvironmentName}-ecs-task'
+      AssumeRolePolicyDocument: { Version: '2012-10-17', Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: 'sts:AssumeRole' }] }
+      Policies:
+        - PolicyName: PrivateResumeStorage
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: !Sub '${ResumeBucket.Arn}/*' }
+              - { Effect: Allow, Action: ['s3:ListBucket'], Resource: !GetAtt ResumeBucket.Arn }
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'proofpath-${EnvironmentName}-cloudformation'
+      AssumeRolePolicyDocument: { Version: '2012-10-17', Statement: [{ Effect: Allow, Principal: { Service: cloudformation.amazonaws.com }, Action: 'sts:AssumeRole' }] }
+      Policies:
+        - PolicyName: ManageProofPathStacks
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['ec2:*', 'elasticloadbalancing:*', 'ecs:*', 'ecr:*', 'logs:*', 'cloudwatch:*', 'cloudfront:*', 's3:*', 'rds:*', 'secretsmanager:*']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['iam:GetRole', 'iam:PassRole']
+                Resource: [!GetAtt EcsExecutionRole.Arn, !GetAtt EcsTaskRole.Arn]
+              - Effect: Allow
+                Action: ['iam:CreateServiceLinkedRole']
+                Resource: '*'
+                Condition: { StringLike: { 'iam:AWSServiceName': ['ecs.amazonaws.com', 'elasticloadbalancing.amazonaws.com', 'rds.amazonaws.com'] } }
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudgetAlertEmail
+    Properties:
+      Budget: { BudgetName: proofpath-staging-monthly, BudgetLimit: { Amount: 100, Unit: USD }, BudgetType: COST, TimeUnit: MONTHLY }
+      NotificationsWithSubscribers:
+        - Notification: { ComparisonOperator: GREATER_THAN, NotificationType: FORECASTED, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ Address: !Ref BudgetAlertEmail, SubscriptionType: EMAIL }]
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'proofpath-${EnvironmentName}-github-deploy'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref GitHubOidcProvider }
+            Action: 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals: { 'token.actions.githubusercontent.com:aud': sts.amazonaws.com }
+              StringLike: { 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOwner}/${GitHubRepository}:environment:staging' }
+      Policies:
+        - PolicyName: DeployProofPath
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: ['cloudformation:CreateStack', 'cloudformation:UpdateStack', 'cloudformation:CreateChangeSet', 'cloudformation:ExecuteChangeSet', 'cloudformation:DeleteChangeSet', 'cloudformation:Describe*', 'cloudformation:GetTemplate', 'cloudformation:ListStackResources'], Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/proofpath-*/*' }
+              - { Effect: Allow, Action: ['iam:PassRole'], Resource: !GetAtt CloudFormationExecutionRole.Arn }
+              - { Effect: Allow, Action: ['ecr:GetAuthorizationToken'], Resource: '*' }
+              - { Effect: Allow, Action: ['ecr:BatchCheckLayerAvailability', 'ecr:GetDownloadUrlForLayer', 'ecr:BatchGetImage', 'ecr:PutImage', 'ecr:InitiateLayerUpload', 'ecr:UploadLayerPart', 'ecr:CompleteLayerUpload'], Resource: [!GetAtt ApiRepository.Arn, !GetAtt WorkerRepository.Arn] }
+              - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket'], Resource: '*' }
+              - { Effect: Allow, Action: ['cloudfront:CreateInvalidation'], Resource: '*' }
+              - { Effect: Allow, Action: ['ecs:RunTask', 'ecs:DescribeTasks'], Resource: '*' }
+              - { Effect: Allow, Action: ['iam:PassRole'], Resource: [!GetAtt EcsExecutionRole.Arn, !GetAtt EcsTaskRole.Arn] }
+Outputs:
+  VpcId: { Value: !Ref Vpc }
+  PublicSubnets: { Value: !Join [',', [!Ref PublicSubnetA, !Ref PublicSubnetB]] }
+  PrivateSubnets: { Value: !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]] }
+  LoadBalancerSecurityGroup: { Value: !Ref LoadBalancerSecurityGroup }
+  TaskSecurityGroup: { Value: !Ref TaskSecurityGroup }
+  ExecutionRoleArn: { Value: !GetAtt EcsExecutionRole.Arn }
+  TaskRoleArn: { Value: !GetAtt EcsTaskRole.Arn }
+  ApplicationSecretArn: { Value: !Ref ApplicationSecret }
+  DatabaseSecretArn: { Value: !GetAtt Database.MasterUserSecret.SecretArn }
+  DatabaseHost: { Value: !GetAtt Database.Endpoint.Address }
+  ResumeBucket: { Value: !Ref ResumeBucket }
+  ApiRepositoryUri: { Value: !GetAtt ApiRepository.RepositoryUri }
+  WorkerRepositoryUri: { Value: !GetAtt WorkerRepository.RepositoryUri }
+  GitHubDeployRoleArn: { Value: !GetAtt GitHubDeployRole.Arn }
+  CloudFormationExecutionRoleArn: { Value: !GetAtt CloudFormationExecutionRole.Arn }

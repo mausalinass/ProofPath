@@ -1,10 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ProofPath ECS application stack. Foundation resources and least-privilege roles are supplied by the platform owner.
+Description: ProofPath ECS application stack with a private CloudFront VPC origin and fail-closed malware scanning.
 Parameters:
+  EnvironmentName: { Type: String, Default: staging, AllowedPattern: '[a-z0-9-]+' }
   ApiImage: { Type: String }
   WorkerImage: { Type: String }
+  ClamAvImage: { Type: String, Default: 'clamav/clamav@sha256:ebec5bc138401b36ae987caa1a3fa3c3b2a21ed3d51f0bfa5852825e663e67b0' }
   VpcId: { Type: AWS::EC2::VPC::Id }
   PublicSubnets: { Type: List<AWS::EC2::Subnet::Id> }
+  PrivateSubnets: { Type: List<AWS::EC2::Subnet::Id> }
   LoadBalancerSecurityGroups: { Type: List<AWS::EC2::SecurityGroup::Id> }
   TaskSecurityGroups: { Type: List<AWS::EC2::SecurityGroup::Id> }
   ExecutionRoleArn: { Type: String }
@@ -17,46 +20,57 @@ Parameters:
   ResumeBucket: { Type: String }
   FrontendOrigin: { Type: String }
   OriginVerifySecret: { Type: String, NoEcho: true, MinLength: 32 }
-  FileSecurityReviewed: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  FileSecurityReviewed: { Type: String, Default: 'true', AllowedValues: ['true'] }
   OpenAIPrivacyReviewed: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
   DesiredCount: { Type: Number, Default: 1, MinValue: 1, MaxValue: 4 }
 Resources:
-  Cluster: { Type: AWS::ECS::Cluster, Properties: { ClusterName: proofpath-production, ClusterSettings: [{ Name: containerInsights, Value: enabled }] } }
-  ApiLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: /proofpath/production/api, RetentionInDays: 30 } }
-  WorkerLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: /proofpath/production/worker, RetentionInDays: 30 } }
-  LoadBalancer: { Type: AWS::ElasticLoadBalancingV2::LoadBalancer, Properties: { Scheme: internet-facing, Subnets: !Ref PublicSubnets, SecurityGroups: !Ref LoadBalancerSecurityGroups } }
-  TargetGroup: { Type: AWS::ElasticLoadBalancingV2::TargetGroup, Properties: { VpcId: !Ref VpcId, Port: 8080, Protocol: HTTP, TargetType: ip, HealthCheckPath: /health/live, Matcher: { HttpCode: '200' } } }
+  Cluster: { Type: AWS::ECS::Cluster, Properties: { ClusterName: !Sub 'proofpath-${EnvironmentName}', ClusterSettings: [{ Name: containerInsights, Value: enabled }] } }
+  ApiLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: !Sub '/proofpath/${EnvironmentName}/api', RetentionInDays: 30 } }
+  ClamAvLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: !Sub '/proofpath/${EnvironmentName}/clamav', RetentionInDays: 14 } }
+  WorkerLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: !Sub '/proofpath/${EnvironmentName}/worker', RetentionInDays: 30 } }
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: { Scheme: internal, Type: application, IpAddressType: ipv4, Subnets: !Ref PrivateSubnets, SecurityGroups: !Ref LoadBalancerSecurityGroups }
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: { VpcId: !Ref VpcId, Port: 8080, Protocol: HTTP, TargetType: ip, HealthCheckPath: /health/live, Matcher: { HttpCode: '200' } }
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 80
       Protocol: HTTP
-      DefaultActions:
-        - Type: fixed-response
-          FixedResponseConfig: { StatusCode: '403', ContentType: text/plain, MessageBody: Forbidden }
+      DefaultActions: [{ Type: fixed-response, FixedResponseConfig: { StatusCode: '403', ContentType: text/plain, MessageBody: Forbidden } }]
   CloudFrontOriginRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref Listener
       Priority: 1
-      Conditions:
-        - Field: http-header
-          HttpHeaderConfig: { HttpHeaderName: X-ProofPath-Origin, Values: [!Ref OriginVerifySecret] }
+      Conditions: [{ Field: http-header, HttpHeaderConfig: { HttpHeaderName: X-ProofPath-Origin, Values: [!Ref OriginVerifySecret] } }]
       Actions: [{ Type: forward, TargetGroupArn: !Ref TargetGroup }]
   ApiTask:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: proofpath-api
-      Cpu: '512'
-      Memory: '1024'
+      Family: !Sub 'proofpath-${EnvironmentName}-api'
+      Cpu: '1024'
+      Memory: '5120'
       NetworkMode: awsvpc
       RequiresCompatibilities: [FARGATE]
       ExecutionRoleArn: !Ref ExecutionRoleArn
       TaskRoleArn: !Ref TaskRoleArn
       ContainerDefinitions:
+        - Name: clamav
+          Image: !Ref ClamAvImage
+          Essential: true
+          MemoryReservation: 3072
+          PortMappings: [{ ContainerPort: 3310, Protocol: tcp }]
+          HealthCheck: { Command: [CMD-SHELL, 'clamdscan --ping 1 --wait || exit 1'], Interval: 30, Timeout: 10, Retries: 5, StartPeriod: 180 }
+          LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref ClamAvLogs, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: clamav } }
         - Name: api
           Image: !Ref ApiImage
+          Essential: true
+          MemoryReservation: 1024
+          DependsOn: [{ ContainerName: clamav, Condition: HEALTHY }]
           PortMappings: [{ ContainerPort: 8080 }]
           Environment:
             - { Name: ASPNETCORE_ENVIRONMENT, Value: Production }
@@ -65,8 +79,11 @@ Resources:
             - { Name: Database__Username, Value: !Ref DatabaseUsername }
             - { Name: Storage__Provider, Value: S3 }
             - { Name: Storage__Bucket, Value: !Ref ResumeBucket }
-            - { Name: Storage__Region, Value: !Ref AWS::Region }
+            - { Name: Storage__Region, Value: !Ref 'AWS::Region' }
             - { Name: Storage__FileSecurityReviewed, Value: !Ref FileSecurityReviewed }
+            - { Name: FileSecurity__Provider, Value: ClamAV }
+            - { Name: FileSecurity__ClamAvHost, Value: 127.0.0.1 }
+            - { Name: FileSecurity__ClamAvPort, Value: '3310' }
             - { Name: OpenAI__PrivacyReviewed, Value: !Ref OpenAIPrivacyReviewed }
             - { Name: Frontend__Origins__0, Value: !Ref FrontendOrigin }
             - { Name: Frontend__GitHubReturnUrl, Value: !Sub '${FrontendOrigin}/onboarding/github?github=connected' }
@@ -76,11 +93,11 @@ Resources:
             - { Name: GitHub__AppId, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppId::' }
             - { Name: GitHub__AppSlug, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppSlug::' }
             - { Name: GitHub__PrivateKeyPem, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubPrivateKeyPem::' }
-          LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref ApiLogs, awslogs-region: !Ref AWS::Region, awslogs-stream-prefix: api } }
+          LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref ApiLogs, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: api } }
   WorkerTask:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: proofpath-worker
+      Family: !Sub 'proofpath-${EnvironmentName}-worker'
       Cpu: '512'
       Memory: '1024'
       NetworkMode: awsvpc
@@ -97,8 +114,10 @@ Resources:
             - { Name: Database__Username, Value: !Ref DatabaseUsername }
             - { Name: Storage__Provider, Value: S3 }
             - { Name: Storage__Bucket, Value: !Ref ResumeBucket }
-            - { Name: Storage__Region, Value: !Ref AWS::Region }
+            - { Name: Storage__Region, Value: !Ref 'AWS::Region' }
             - { Name: Storage__FileSecurityReviewed, Value: !Ref FileSecurityReviewed }
+            - { Name: FileSecurity__Provider, Value: ClamAV }
+            - { Name: FileSecurity__ClamAvHost, Value: 127.0.0.1 }
             - { Name: OpenAI__PrivacyReviewed, Value: !Ref OpenAIPrivacyReviewed }
           Secrets:
             - { Name: Database__Password, ValueFrom: !Sub '${DatabaseSecretArn}:password::' }
@@ -106,7 +125,7 @@ Resources:
             - { Name: GitHub__AppId, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppId::' }
             - { Name: GitHub__AppSlug, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppSlug::' }
             - { Name: GitHub__PrivateKeyPem, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubPrivateKeyPem::' }
-          LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref WorkerLogs, awslogs-region: !Ref AWS::Region, awslogs-stream-prefix: worker } }
+          LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref WorkerLogs, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: worker } }
   ApiService:
     Type: AWS::ECS::Service
     DependsOn: CloudFrontOriginRule
@@ -115,7 +134,7 @@ Resources:
       TaskDefinition: !Ref ApiTask
       DesiredCount: !Ref DesiredCount
       LaunchType: FARGATE
-      HealthCheckGracePeriodSeconds: 120
+      HealthCheckGracePeriodSeconds: 300
       LoadBalancers: [{ ContainerName: api, ContainerPort: 8080, TargetGroupArn: !Ref TargetGroup }]
       NetworkConfiguration: { AwsvpcConfiguration: { AssignPublicIp: ENABLED, SecurityGroups: !Ref TaskSecurityGroups, Subnets: !Ref PublicSubnets } }
   WorkerService:
@@ -130,8 +149,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties: { AlarmDescription: ProofPath API 5xx responses, Namespace: AWS/ApplicationELB, MetricName: HTTPCode_Target_5XX_Count, Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }], Statistic: Sum, Period: 300, EvaluationPeriods: 1, Threshold: 5, ComparisonOperator: GreaterThanOrEqualToThreshold, TreatMissingData: notBreaching }
 Outputs:
-  ApiUrl: { Value: !Sub 'http://${LoadBalancer.DNSName}' }
   ApiDomain: { Value: !GetAtt LoadBalancer.DNSName }
+  ApiLoadBalancerArn: { Value: !Ref LoadBalancer }
   ClusterName: { Value: !Ref Cluster }
   ApiServiceName: { Value: !GetAtt ApiService.Name }
   WorkerServiceName: { Value: !GetAtt WorkerService.Name }

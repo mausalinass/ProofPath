@@ -15,4 +15,4 @@
 
 ## Release gate
 
-Production is not ready to execute yet. The current blockers are malware scanning/quarantine, provider privacy approval, TLS from CloudFront to ALB, least-privilege AWS foundation resources and a synthetic-data staging validation. See [the current audit](Pre_Deployment_Audit.md).
+Staging is ready for an owner-reviewed launch: malware scanning, the private CloudFront VPC origin and the AWS foundation are implemented. The remaining actions are the explicit synthetic-data privacy approval, paid AWS foundation creation and the live validation described in [the current audit](Pre_Deployment_Audit.md).

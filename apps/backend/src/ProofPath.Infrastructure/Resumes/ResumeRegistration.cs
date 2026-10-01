@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using ProofPath.Application.Analysis;
 using ProofPath.Application.Files;
+using ProofPath.Application.FileSecurity;
 using ProofPath.Application.Resumes;
 using ProofPath.Infrastructure.Files;
 
@@ -15,6 +16,13 @@ public static class ResumeRegistration
     public static IServiceCollection AddResumeModule(this IServiceCollection services, IConfiguration configuration, string environmentName, string contentRoot)
     {
         services.AddSingleton<IDocumentTextExtractor, DocumentTextExtractor>();
+        var fileSecurityProvider = configuration["FileSecurity:Provider"];
+        if (string.Equals(fileSecurityProvider, "ClamAV", StringComparison.OrdinalIgnoreCase))
+            services.AddSingleton<IPrivateFileSecurityScanner, ClamAvPrivateFileSecurityScanner>();
+        else if (environmentName is "Development" or "Testing")
+            services.AddSingleton<IPrivateFileSecurityScanner, DevelopmentPrivateFileSecurityScanner>();
+        else
+            throw new InvalidOperationException("Production requires FileSecurity:Provider=ClamAV.");
         services.AddSingleton<ProviderCircuit>();
         services.AddSingleton<ILlmProvider>(provider => new OpenAiResumeProvider(new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
             configuration, provider.GetRequiredService<ProviderCircuit>()));
