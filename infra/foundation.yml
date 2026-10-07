@@ -187,7 +187,7 @@ Resources:
             Action: 'sts:AssumeRoleWithWebIdentity'
             Condition:
               StringEquals: { 'token.actions.githubusercontent.com:aud': sts.amazonaws.com }
-              StringLike: { 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOwner}/${GitHubRepository}:environment:staging' }
+              StringLike: { 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOwner}@258089661/${GitHubRepository}@1353683494:environment:staging' }
       Policies:
         - PolicyName: DeployProofPath
           PolicyDocument:
