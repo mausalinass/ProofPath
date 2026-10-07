@@ -40,10 +40,15 @@ jobs:
       - name: Build and publish immutable containers
         env: { REGISTRY: "${{ steps.ecr.outputs.registry }}", TAG: "${{ github.sha }}" }
         run: |
-          docker build -f apps/backend/Dockerfile.api -t "$REGISTRY/proofpath-api:$TAG" .
-          docker build -f apps/backend/Dockerfile.worker -t "$REGISTRY/proofpath-worker:$TAG" .
-          docker push "$REGISTRY/proofpath-api:$TAG"
-          docker push "$REGISTRY/proofpath-worker:$TAG"
+          for component in api worker; do
+            existing=$(aws ecr batch-get-image --repository-name "proofpath-$component" --image-ids imageTag="$TAG" --query 'images[0].imageId.imageDigest' --output text)
+            if [ "$existing" != "None" ] && [ -n "$existing" ]; then
+              echo "Reusing immutable proofpath-$component image for $TAG"
+            else
+              docker build -f "apps/backend/Dockerfile.$component" -t "$REGISTRY/proofpath-$component:$TAG" .
+              docker push "$REGISTRY/proofpath-$component:$TAG"
+            fi
+          done
       - name: Deploy private application origin
         env:
           REGISTRY: "${{ steps.ecr.outputs.registry }}"
