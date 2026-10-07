@@ -160,7 +160,7 @@ Resources:
               - Effect: Allow
                 Action: ['iam:CreateServiceLinkedRole']
                 Resource: '*'
-                Condition: { StringLike: { 'iam:AWSServiceName': ['ecs.amazonaws.com', 'elasticloadbalancing.amazonaws.com', 'rds.amazonaws.com'] } }
+                Condition: { StringLike: { 'iam:AWSServiceName': ['ecs.amazonaws.com', 'elasticloadbalancing.amazonaws.com', 'rds.amazonaws.com', 'vpcorigin.cloudfront.amazonaws.com'] } }
   MonthlyBudget:
     Type: AWS::Budgets::Budget
     Condition: HasBudgetAlertEmail
