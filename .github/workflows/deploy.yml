@@ -15,7 +15,7 @@ jobs:
         run: |
           test "$OPENAI_PRIVACY_REVIEWED" = "true" || { echo "OpenAI privacy review is incomplete."; exit 1; }
           test "${#ORIGIN_SECRET}" -ge 32 || { echo "Origin verification secret is missing or too short."; exit 1; }
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@v6
         with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
