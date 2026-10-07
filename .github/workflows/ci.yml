@@ -17,7 +17,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - run: dotnet restore apps/backend/ProofPath.slnx
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: apps/web } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - run: npm ci
@@ -50,7 +50,7 @@ jobs:
       PROOFPATH_E2E_CONNECTION: Host=127.0.0.1;Port=5432;Database=proofpath_e2e;Username=proofpath_e2e;Password=isolated-e2e-only
       PROOFPATH_E2E_STORAGE: /tmp/proofpath-e2e-private
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - uses: actions/setup-node@v4
@@ -65,7 +65,7 @@ jobs:
   containers-and-security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - uses: actions/setup-python@v5
