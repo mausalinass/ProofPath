@@ -72,6 +72,8 @@ jobs:
         with: { python-version: '3.13' }
       - run: pip install cfn-lint
       - run: cfn-lint infra/foundation.yml infra/production.yml infra/frontend.yml
+      - name: Verify deployed antivirus health check
+        run: python scripts/test-clamav-health.py
       - run: docker compose -f compose.production.yml config --quiet
         env: { POSTGRES_PASSWORD: ci-compose-validation-only }
       - uses: actions/setup-node@v4

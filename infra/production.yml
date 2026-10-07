@@ -64,7 +64,7 @@ Resources:
           Essential: true
           MemoryReservation: 3072
           PortMappings: [{ ContainerPort: 3310, Protocol: tcp }]
-          HealthCheck: { Command: [CMD-SHELL, 'clamdscan --ping 1 --wait || exit 1'], Interval: 30, Timeout: 10, Retries: 5, StartPeriod: 180 }
+          HealthCheck: { Command: [CMD, clamdscan, '--ping=1'], Interval: 30, Timeout: 10, Retries: 5, StartPeriod: 180 }
           LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref ClamAvLogs, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: clamav } }
         - Name: api
           Image: !Ref ApiImage
