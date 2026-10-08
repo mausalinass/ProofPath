@@ -50,8 +50,8 @@ Resources:
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           FunctionAssociations: [{ EventType: viewer-request, FunctionARN: !GetAtt SpaRewrite.FunctionARN }]
         CacheBehaviors:
-          - { PathPattern: '/api/*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 413f5281-0355-4e2e-9a38-e1c9f83d9f18, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachedMethods: [GET, HEAD, OPTIONS] }
-          - { PathPattern: '/health*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 413f5281-0355-4e2e-9a38-e1c9f83d9f18, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 }
+          - { PathPattern: '/api/*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachedMethods: [GET, HEAD, OPTIONS] }
+          - { PathPattern: '/health*', TargetOriginId: api, ViewerProtocolPolicy: redirect-to-https, Compress: true, CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad, OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 }
   BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
