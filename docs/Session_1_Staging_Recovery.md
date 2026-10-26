@@ -1,8 +1,8 @@
 # Session 1 staging recovery
 
-Date: 2026-10-26  
-Environment: AWS staging, `us-east-2`  
-Data used: no user or résumé data; health checks and infrastructure metadata only
+- Date: 2026-10-26
+- Environment: AWS staging, `us-east-2`
+- Data used: no user or résumé data; health checks and infrastructure metadata only
 
 ## Outcome
 
