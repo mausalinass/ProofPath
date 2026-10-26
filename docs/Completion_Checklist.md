@@ -1,6 +1,6 @@
 # ProofPath v1 completion checklist
 
-Last audit: 2026-10-21
+Last audit: 2026-10-26
 
 This document is the source of truth for finishing ProofPath v1. Historical sprint documents remain useful as evidence, but this checklist controls the remaining work.
 
@@ -18,7 +18,7 @@ Routine maintenance after launch (dependency updates, cost review, backup checks
 - [x] GitHub App created with read-only repository permissions.
 - [x] OpenAI and AWS credentials stored outside Git.
 - [x] Completion audit performed.
-- [ ] Current staging readiness restored; PostgreSQL health is presently failing.
+- [x] Current staging readiness restored; PostgreSQL health is healthy as of 2026-10-26.
 
 ## 1. Complete the five remediation sessions
 
@@ -26,15 +26,17 @@ Each session includes its own relevant tests, documentation update, secret scan,
 
 ### Session 1 - Stabilize staging
 
-- [ ] Diagnose the unhealthy PostgreSQL readiness check.
-- [ ] Verify RDS state, credentials, networking and ECS connectivity.
-- [ ] Restore API and Worker health without recreating or losing existing data.
-- [ ] Confirm `/health/ready` returns HTTP 200.
-- [ ] Confirm the frontend, login and protected API behavior.
-- [ ] Review logs for errors and accidental sensitive data.
-- [ ] Record the cause, fix and recovery procedure.
+- [x] Diagnose the unhealthy PostgreSQL readiness check.
+- [x] Verify RDS state, credentials, networking and ECS connectivity.
+- [x] Restore API and Worker health without recreating or losing existing data.
+- [x] Confirm `/health/ready` returns HTTP 200.
+- [x] Confirm the frontend, login and protected API behavior.
+- [x] Review logs for errors and accidental sensitive data.
+- [x] Record the cause, fix and recovery procedure.
 
 Exit criterion: frontend, API, Worker and PostgreSQL are stable in staging.
+
+Evidence: [Session 1 staging recovery](Session_1_Staging_Recovery.md).
 
 ### Session 2 - Dependencies, Docker and local quality baseline
 
