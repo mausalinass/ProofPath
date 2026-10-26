@@ -49,4 +49,4 @@ The new Worker stream contained SQL command text with column names such as `Erro
 
 ## Follow-up risk
 
-A future managed RDS password rotation can produce the same stale ECS environment value. The operational recovery is documented in the production runbook. A later hardening session should automate a controlled API and Worker redeployment after rotation and add an actionable readiness alarm. Known high-severity .NET and npm dependency findings remain assigned to Session 2 and are not caused by this recovery.
+A future managed RDS password rotation can produce the same stale ECS environment value. The operational recovery is documented in the production runbook. A later hardening session should automate a controlled API and Worker redeployment after rotation and add an actionable readiness alarm. Docker operation and the known .NET and npm dependency findings were resolved in Session 2 on 2026-10-26.

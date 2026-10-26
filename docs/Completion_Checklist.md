@@ -40,16 +40,18 @@ Evidence: [Session 1 staging recovery](Session_1_Staging_Recovery.md).
 
 ### Session 2 - Dependencies, Docker and local quality baseline
 
-- [ ] Update Vite and affected frontend dependencies.
-- [ ] Update vulnerable .NET cryptography dependencies.
-- [ ] Restore Docker Desktop operation.
-- [ ] Run all backend tests, including Testcontainers tests.
-- [ ] Run frontend lint, unit tests and production build.
-- [ ] Run Playwright browser tests.
-- [ ] Run npm and NuGet vulnerability audits.
-- [ ] Resolve all critical and high-severity dependency findings.
+- [x] Update Vite and affected frontend dependencies.
+- [x] Update vulnerable .NET cryptography dependencies.
+- [x] Restore Docker Desktop operation.
+- [x] Run all backend tests, including Testcontainers tests.
+- [x] Run frontend lint, unit tests and production build.
+- [x] Run Playwright browser tests.
+- [x] Run npm and NuGet vulnerability audits.
+- [x] Resolve all critical and high-severity dependency findings.
 
 Exit criterion: builds and tests pass, and no unresolved critical or high dependency vulnerability remains.
+
+Evidence: [Session 2 quality baseline](Session_2_Quality_Baseline.md).
 
 ### Session 3 - Integrations and full synthetic journey
 
