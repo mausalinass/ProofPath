@@ -55,18 +55,20 @@ Evidence: [Session 2 quality baseline](Session_2_Quality_Baseline.md).
 
 ### Session 3 - Integrations and full synthetic journey
 
-- [ ] Verify the deployed GitHub App callback URL.
-- [ ] Verify login and GitHub authorization.
-- [ ] Upload and process a clean synthetic resume.
-- [ ] Verify EICAR/malware rejection.
-- [ ] Verify resume extraction and user review.
-- [ ] Import or create a job.
-- [ ] Run matching and inspect its evidence.
-- [ ] Verify recommendations and application tracking.
-- [ ] Verify job failure, retry and cancellation behavior.
-- [ ] Confirm OpenAI usage and cost limits.
+- [x] Verify the deployed GitHub App callback URL.
+- [x] Verify login and GitHub authorization.
+- [x] Upload and process a clean synthetic resume.
+- [x] Verify EICAR/malware rejection.
+- [x] Verify resume extraction and user review.
+- [x] Import or create a job.
+- [x] Run matching and inspect its evidence.
+- [x] Verify recommendations and application tracking.
+- [x] Verify job failure, retry and cancellation behavior.
+- [x] Confirm OpenAI usage and cost limits.
 
 Exit criterion: a synthetic user completes the full staging journey without database intervention.
+
+Evidence: [Session 3 integrations and full synthetic journey](Session_3_Synthetic_Journey.md).
 
 ### Session 4 - Security and DevOps hardening
 

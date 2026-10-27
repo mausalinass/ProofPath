@@ -97,8 +97,23 @@ try {
     Send-Json Post "/api/v1/resumes/$($upload.id)/confirm" @{ revision = $resumeReview.revision } | Out-Null
     "resume_confirmed=true"
 
+    # Keep one explicit requirement per source block. This makes the provenance check deterministic:
+    # every machine quote and original wording must remain a contiguous phrase from one block.
     $description = @"
-Synthetic Backend Software Engineer role. Required: 3+ years building production services with C# and ASP.NET Core; PostgreSQL and Entity Framework Core; REST API design; automated tests with xUnit; Docker containers; GitHub Actions continuous integration; AWS deployment experience. Preferred: React and TypeScript, security threat modeling, observability, and clear technical documentation. The engineer collaborates across product and operations, owns delivery, reviews incidents, and communicates tradeoffs.
+Synthetic Backend Software Engineer role.
+Required: At least 3 years building production services.
+Required: Experience with C# and ASP.NET Core.
+Required: Experience with PostgreSQL and Entity Framework Core.
+Required: Experience designing REST APIs.
+Required: Experience writing automated tests with xUnit.
+Required: Experience building Docker containers.
+Required: Experience using GitHub Actions for continuous integration.
+Required: Experience deploying applications to AWS.
+Preferred: Experience with React and TypeScript.
+Preferred: Experience with security threat modeling and observability.
+Preferred: Ability to write clear technical documentation.
+The engineer collaborates across product and operations.
+The engineer owns delivery, reviews incidents, and communicates tradeoffs.
 "@
     $created = Send-Json Post "/api/v1/jobs/" @{ company = "Synthetic Systems"; title = "Backend Software Engineer"; description = $description.Trim(); sourceUrl = $null }
     "job_created=true"

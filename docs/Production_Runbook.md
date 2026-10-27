@@ -48,6 +48,12 @@ Run the `Deploy staging` workflow only after CI succeeds. It builds immutable im
 
 The internal ALB has no public route. Its security group accepts only the AWS-managed CloudFront origin-facing prefix list, and the listener also requires a secret header. CloudFront reaches it through a private VPC origin.
 
+### CloudFront viewer scheme and antiforgery cookies
+
+The API origin is HTTP inside the private VPC even though the browser-facing connection is HTTPS. The `/api/*` and `/health*` cache behaviors must therefore use the AWS managed `AllViewerAndCloudFrontHeaders-2022-06` origin request policy (`33f36d7e-f396-46d9-90e0-52428a34d9dc`). ASP.NET Core consumes its `CloudFront-Forwarded-Proto` header as the forwarded scheme before antiforgery executes.
+
+If `/health/ready` is healthy but `/api/v1/auth/csrf` returns HTTP 500 with an antiforgery error about a secure cookie on a non-SSL request, confirm both behavior policy IDs and the API forwarded-header configuration. Do not weaken the cookie's `Secure` policy; restore the viewer protocol signal instead. Validate the repair through the public HTTPS URL and confirm the CSRF response includes a secure cookie.
+
 ## PostgreSQL readiness recovery after password rotation
 
 RDS manages and rotates the master password in Secrets Manager. ECS resolves `Database__Password` only when a task starts; an already-running API or Worker does not receive a later secret version automatically. If `/health/live` succeeds but `/health/ready` reports PostgreSQL unhealthy after a managed rotation, compare the running task start times with the secret's `LastChangedDate` without retrieving the secret value.
@@ -79,6 +85,18 @@ This recovery is operational rather than preventive. Until secret rotation is wi
 ## Post-deployment validation
 
 Use only synthetic documents. Update the GitHub App callback to the final CloudFront URL, then verify login, GitHub authorization, clean résumé upload, EICAR rejection, extraction/review, job ingestion, matching and tracker recommendations. Keep public registration disabled.
+
+The staging GitHub App callback is:
+
+```text
+https://d27i0fde08ymkz.cloudfront.net/api/v1/github/callback
+```
+
+GitHub App setup redirects use `installation_id`, `setup_action` (`install` or `update`) and the signed ProofPath `state`. ProofPath verifies the installation and its read-only Contents/Metadata permissions with a short-lived App JWT; it does not require an OAuth `code`. A callback state is single-use and replay must fail.
+
+Private résumé operations verify the bucket's public-access block before reading or writing objects. The ECS task role therefore needs `s3:GetBucketPublicAccessBlock` on the résumé bucket in addition to its object permissions and `s3:ListBucket`. If upload logs show that exact denied action, restore the bucket-scoped permission from `infra/foundation.yml`; do not disable the runtime privacy check or grant `s3:*`.
+
+For a repeatable staging check, run `scripts/session3-synthetic-journey.ps1` only with a dedicated synthetic account and synthetic résumé. Its output is deliberately limited to HTTP statuses, sanitized job states and aggregate counts. Never use a real résumé or production credential in this script.
 
 ## Production promotion
 
