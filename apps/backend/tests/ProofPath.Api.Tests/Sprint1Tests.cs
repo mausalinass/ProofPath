@@ -172,6 +172,21 @@ public sealed class Sprint1Tests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/auth/register", new { email = Email(), password = Password, firstName = "Ada" })).StatusCode);
     }
 
+    [Fact]
+    public async Task CloudFrontViewerProtocolProducesSecureCsrfCookie()
+    {
+        using var client = fixture.Client();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/csrf");
+        request.Headers.Add("CloudFront-Forwarded-Proto", "https");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), value =>
+            value.StartsWith("ProofPath-Csrf=", StringComparison.Ordinal) &&
+            value.Contains("; secure", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("http://localhost:5173", true)]
     [InlineData("https://untrusted.example", false)]

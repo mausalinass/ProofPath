@@ -125,7 +125,12 @@ if (args.Contains("--migrate", StringComparer.OrdinalIgnoreCase))
 }
 if (app.Environment.IsDevelopment()) app.MapOpenApi();
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing")) app.UseHsts();
-var forwardedHeaders = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto, ForwardLimit = 2 };
+var forwardedHeaders = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardedProtoHeaderName = "CloudFront-Forwarded-Proto",
+    ForwardLimit = 2
+};
 // Production ingress is restricted by security group to the reviewed load balancer/CloudFront path.
 forwardedHeaders.KnownIPNetworks.Clear();
 forwardedHeaders.KnownProxies.Clear();
