@@ -29,6 +29,20 @@ public sealed class JobRequirementValidationTests
         Assert.Throws<AnalysisFailure>(() => JobRequirementValidation.Validate(
             new([valid.Requirements[0] with { Quote = "Invented requirement" }]), source, false));
     }
+
+    [Fact]
+    public void MachineExtractionAllowsSeparateExactPhrasesFromTheSameSourceBlock()
+    {
+        var source = new JobDescriptionSource([new("jd-1", "We require C# experience and automated delivery ownership.")], []);
+        var draft = new JobRequirementDraftSet([new("req-1", RequirementCategory.TechnicalSkill, RequirementLevel.Required,
+            RequirementImportance.High, RequirementState.Extracted, "C# experience", "C#", null,
+            RequirementNormalizationStatus.Suggested, null, [], null, RequirementGroupType.None, "jd-1",
+            "automated delivery ownership")]);
+
+        JobRequirementValidation.Validate(draft, source, true);
+        Assert.Throws<AnalysisFailure>(() => JobRequirementValidation.Validate(
+            new([draft.Requirements[0] with { OriginalWording = "Kubernetes" }]), source, true));
+    }
 }
 
 public sealed class JobProviderContractTests

@@ -140,7 +140,7 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: !Sub '${ResumeBucket.Arn}/*' }
-              - { Effect: Allow, Action: ['s3:ListBucket'], Resource: !GetAtt ResumeBucket.Arn }
+              - { Effect: Allow, Action: ['s3:ListBucket', 's3:GetBucketPublicAccessBlock'], Resource: !GetAtt ResumeBucket.Arn }
   CloudFormationExecutionRole:
     Type: AWS::IAM::Role
     Properties:

@@ -27,13 +27,17 @@ public static class JobRequirementValidation
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in draft.Requirements)
         {
-            if (item is null || string.IsNullOrWhiteSpace(item.Key) || !keys.Add(item.Key) ||
+            if (item is null) Fail();
+            if (!blocks.TryGetValue(item.SourceBlockId, out var block)) Fail();
+            if (string.IsNullOrWhiteSpace(item.Key) || !keys.Add(item.Key) ||
                 string.IsNullOrWhiteSpace(item.OriginalWording) || item.OriginalWording.Length > 4000 ||
-                string.IsNullOrWhiteSpace(item.Quote) || !blocks.TryGetValue(item.SourceBlockId, out var block) ||
-                !block.Contains(item.Quote, StringComparison.Ordinal) || item.Qualifiers is null || item.Qualifiers.Length > 20 ||
+                string.IsNullOrWhiteSpace(item.Quote) || !block.Contains(item.Quote, StringComparison.Ordinal) ||
+                item.Qualifiers is null || item.Qualifiers.Length > 20 ||
                 item.Qualifiers.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 500) ||
                 item.State == RequirementState.Confirmed) Fail();
-            if (machine && !item.Quote.Contains(item.OriginalWording, StringComparison.OrdinalIgnoreCase)) Fail();
+            // Both fields must be grounded in the cited source block. The quote may be a concise
+            // excerpt while originalWording preserves a separate exact phrase from the same line.
+            if (machine && !block.Contains(item.OriginalWording, StringComparison.OrdinalIgnoreCase)) Fail();
             if (item.Category == RequirementCategory.TechnicalSkill && string.IsNullOrWhiteSpace(item.SkillTerm)) Fail();
             if (item.Category != RequirementCategory.TechnicalSkill && (item.SkillTerm is not null || item.SkillId is not null ||
                 item.NormalizationStatus != RequirementNormalizationStatus.NotApplicable)) Fail();
