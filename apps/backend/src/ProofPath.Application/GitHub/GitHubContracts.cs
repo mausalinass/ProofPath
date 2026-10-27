@@ -38,7 +38,7 @@ public sealed record GitHubEvidenceView(Guid Id, Guid RepositoryId, string Repos
 public interface IGitHubWorkspace
 {
     Task<Uri> BeginConnectionAsync(string userId, CancellationToken ct);
-    Task CompleteConnectionAsync(string state, long installationId, string code, CancellationToken ct);
+    Task CompleteConnectionAsync(string state, long installationId, string setupAction, CancellationToken ct);
     Task<GitHubConnectionView> StatusAsync(string userId, CancellationToken ct);
     Task DisconnectAsync(string userId, CancellationToken ct);
     Task<IReadOnlyList<RepositoryView>> RepositoriesAsync(string userId, bool synchronize, CancellationToken ct);
@@ -50,8 +50,7 @@ public interface IGitHubWorkspace
 public interface IGitHubProvider
 {
     Uri BuildInstallationUri(string state);
-    Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, string authorizationCode,
-        string pkceVerifier, CancellationToken ct);
+    Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, CancellationToken ct);
     Task<GitHubInstallationAccess> CreateInstallationAccessAsync(long installationId,
         IReadOnlyCollection<long> repositoryIds, CancellationToken ct);
     Task<IReadOnlyList<GitHubRepositoryDescriptor>> ListRepositoriesAsync(long installationId, CancellationToken ct);

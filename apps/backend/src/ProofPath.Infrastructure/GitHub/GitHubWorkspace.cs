@@ -16,7 +16,7 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
     IDataProtectionProvider protection) : IGitHubWorkspace
 {
     private readonly IDataProtector protector = protection.CreateProtector("ProofPath.GitHub.Connection.v1");
-    private sealed record State(string UserId, Guid ProfileId, string Nonce, string Verifier, DateTime ExpiresAt);
+    private sealed record State(string UserId, Guid ProfileId, string Nonce, DateTime ExpiresAt);
     private IQueryable<ConnectedAccount> Accounts(string userId) => database.ConnectedAccounts.Where(item =>
         database.CandidateProfiles.Any(profile => profile.Id == item.CandidateProfileId && profile.UserId == userId) && item.Provider == "GitHub");
 
@@ -24,7 +24,7 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
     {
         var profileId = await database.CandidateProfiles.Where(item => item.UserId == userId).Select(item => (Guid?)item.Id).SingleOrDefaultAsync(ct)
             ?? throw new GitHubProblem("PROFILE_REQUIRED", 409);
-        var nonce = Random(32); var now = DateTime.UtcNow; var state = new State(userId, profileId, nonce, Random(48), now.AddMinutes(10));
+        var nonce = Random(32); var now = DateTime.UtcNow; var state = new State(userId, profileId, nonce, now.AddMinutes(10));
         await database.GitHubConnectionAttempts.Where(item => item.CandidateProfileId == profileId || item.ExpiresAt <= now).ExecuteDeleteAsync(ct);
         database.GitHubConnectionAttempts.Add(new()
         {
@@ -39,10 +39,13 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
         return provider.BuildInstallationUri(nonce);
     }
 
-    public async Task CompleteConnectionAsync(string protectedState, long installationId, string code, CancellationToken ct)
+    public async Task CompleteConnectionAsync(string protectedState, long installationId, string setupAction, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        if (string.IsNullOrWhiteSpace(protectedState) || installationId <= 0 || string.IsNullOrWhiteSpace(code)) throw new GitHubProblem("GITHUB_STATE_INVALID");
+        if (string.IsNullOrWhiteSpace(protectedState) || installationId <= 0 ||
+            !string.Equals(setupAction, "install", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(setupAction, "update", StringComparison.OrdinalIgnoreCase))
+            throw new GitHubProblem("GITHUB_STATE_INVALID");
         var attempt = await database.GitHubConnectionAttempts.SingleOrDefaultAsync(item =>
             item.NonceHash == Hash(protectedState) && item.ExpiresAt > now, ct);
         if (attempt is null) throw new GitHubProblem("GITHUB_STATE_REPLAYED");
@@ -52,7 +55,7 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
             throw new GitHubProblem("GITHUB_STATE_INVALID");
         var consumed = await database.GitHubConnectionAttempts.Where(item => item.Id == attempt.Id).ExecuteDeleteAsync(ct);
         if (consumed != 1) throw new GitHubProblem("GITHUB_STATE_REPLAYED");
-        var verified = await provider.VerifyInstallationAsync(installationId, code, state.Verifier, ct);
+        var verified = await provider.VerifyInstallationAsync(installationId, ct);
         if (verified.InstallationId != installationId || !verified.Permissions.TryGetValue("contents", out var contents) || contents != "read")
             throw new GitHubProblem("GITHUB_PERMISSIONS_INVALID", 403);
         var account = await Accounts(state.UserId).SingleOrDefaultAsync(ct);

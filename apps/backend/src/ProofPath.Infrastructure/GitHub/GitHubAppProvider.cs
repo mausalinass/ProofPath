@@ -25,7 +25,7 @@ public sealed class GitHubAppProvider(HttpClient http, IConfiguration configurat
         return File.ReadAllText(path);
     }
     public Uri BuildInstallationUri(string state) => new($"https://github.com/apps/{Uri.EscapeDataString(Setting("AppSlug"))}/installations/new?state={Uri.EscapeDataString(state)}");
-    public async Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, string authorizationCode, string pkceVerifier, CancellationToken ct)
+    public async Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, CancellationToken ct)
     {
         // ProofPath acts only as the installed App. Verify the returned installation with the App JWT;
         // no user access token is retained or needed for read-only repository evidence.

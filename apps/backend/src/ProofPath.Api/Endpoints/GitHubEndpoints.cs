@@ -17,10 +17,10 @@ public static class GitHubEndpoints
         group.MapGet("/status", (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) => workspace.StatusAsync(UserId(user), ct));
         group.MapPost("/connect", async (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
             Results.Ok(new { url = (await workspace.BeginConnectionAsync(UserId(user), ct)).ToString() }));
-        group.MapGet("/callback", async (string state, long installation_id, string code,
+        group.MapGet("/callback", async (string state, long installation_id, string setup_action,
             IGitHubWorkspace workspace, IConfiguration configuration, CancellationToken ct) =>
         {
-            await workspace.CompleteConnectionAsync(state, installation_id, code, ct);
+            await workspace.CompleteConnectionAsync(state, installation_id, setup_action, ct);
             return Results.Redirect(configuration["Frontend:GitHubReturnUrl"] ?? "http://localhost:5173/onboarding/github?github=connected");
         }).AllowAnonymous();
         group.MapPost("/disconnect", async (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>

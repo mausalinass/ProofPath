@@ -15,7 +15,7 @@ namespace ProofPath.Api.Tests;
 public sealed class FakeGitHubProvider : IGitHubProvider
 {
     public Uri BuildInstallationUri(string state) => new($"https://github.test/install?state={Uri.EscapeDataString(state)}");
-    public Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, string authorizationCode, string pkceVerifier, CancellationToken ct) =>
+    public Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, CancellationToken ct) =>
         Task.FromResult(new VerifiedGitHubInstallation(42, "octocat", installationId, 42, "octocat", "User", "selected", new Dictionary<string, string> { ["contents"] = "read", ["metadata"] = "read" }));
     public Task<GitHubInstallationAccess> CreateInstallationAccessAsync(long installationId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct) =>
         Task.FromResult(new GitHubInstallationAccess("ephemeral-test-token", DateTime.UtcNow.AddHours(1)));
@@ -167,8 +167,9 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
         using var client = await User(); var connect = await Write(client, HttpMethod.Post, "/api/v1/github/connect", new { });
         var url = new Uri((await connect.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
         var state = Uri.UnescapeDataString(url.Query.Split("state=")[1]);
-        var callback = await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&code=fixture"); Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&code=fixture")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=unexpected")).StatusCode);
+        var callback = await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=install"); Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=install")).StatusCode);
         var repositories = await client.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories?sync=true"); Assert.Equal(6, repositories!.Length); Assert.All(repositories, item => Assert.False(item.IncludedForAnalysis));
         Assert.Equal(HttpStatusCode.BadRequest, (await Write(client, HttpMethod.Put, "/api/v1/github/repositories/selection", new { repositoryIds = Enumerable.Range(1, 6).Select(i => (long)i) })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, HttpMethod.Put, "/api/v1/github/repositories/selection", new { repositoryIds = new[] { 500L } })).StatusCode);
