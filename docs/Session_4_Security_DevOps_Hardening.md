@@ -23,9 +23,10 @@ Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and pr
 
 ## Validation
 
-- Backend tests: pending final run record.
-- Frontend lint, tests and production build: pending final run record.
-- CloudFormation lint and production Compose validation: pending final run record.
+- Backend: 91 tests passed; NuGet reported no vulnerable direct or transitive packages.
+- Frontend: lint, 12 tests and production build passed; `npm audit --omit=dev` reported zero vulnerabilities.
+- CloudFormation lint passed for all three templates and the production Compose configuration validated with a synthetic password.
+- GitHub Actions CI run `40961108639` passed all four jobs: backend, frontend, E2E, and containers/security.
 - Live AWS resources, public headers, alarm actions, SNS subscription, budget and S3 controls: pending deployment record.
 
 No secret value, notification address, authentication cookie, résumé content or provider response body is included in this report.
