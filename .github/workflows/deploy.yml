@@ -1,9 +1,6 @@
 name: Deploy staging
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths: [.github/session4-deploy-trigger]
 permissions: { contents: read, id-token: write }
 concurrency: { group: proofpath-staging, cancel-in-progress: false }
 jobs:

@@ -6,7 +6,7 @@ Data policy: synthetic data only
 
 ## Outcome
 
-Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and private résumé storage without recreating or deleting infrastructure or data. Deployment evidence is recorded after the reviewed CloudFormation changes complete.
+Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and private résumé storage without recreating or deleting infrastructure or data. The reviewed foundation update and the staging application deployment completed without resource replacement or data deletion.
 
 ## Implemented controls
 
@@ -27,6 +27,22 @@ Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and pr
 - Frontend: lint, 12 tests and production build passed; `npm audit --omit=dev` reported zero vulnerabilities.
 - CloudFormation lint passed for all three templates and the production Compose configuration validated with a synthetic password.
 - GitHub Actions CI run `40961108639` passed all four jobs: backend, frontend, E2E, and containers/security.
-- Live AWS resources, public headers, alarm actions, SNS subscription, budget and S3 controls: pending deployment record.
+- Foundation stack `proofpath-foundation` reached `UPDATE_COMPLETE` after the reviewed change set `proofpath-session4-hardening`; its seven changes contained no replacement or deletion.
+- Staging deployment run `40962777795` deployed immutable API/Worker images, both CloudFormation application passes and the CloudFront frontend. CI run `40962777623` passed all four jobs for the deployment commit.
+- ECS reported successful deployments for API revision 14 and Worker revision 8, each with one desired/running task. PostgreSQL-backed `/health/ready` returned HTTP 200 after deployment.
+- Public `/` and `/login` returned HTTP 200 with two-year HSTS preload, restrictive CSP, `nosniff` and Permissions Policy headers. `/api/v1/resumes` returned HTTP 401 without authentication; the CSRF endpoint returned HTTP 200 with `X-Trace-Id`.
+- A generated `X-Trace-Id` was found in the corresponding sanitized API log event. No recent API/Worker error matches or private-key material were found during the log review.
+- The deployment gate confirmed seven CloudWatch alarms with alarm actions, and confirmed the résumé bucket's public-access block, versioning, AES-256 encryption and three lifecycle controls.
+- The monthly USD 100 budget is healthy and has forecast 80%, actual 80% and actual 100% alerts. AWS Budgets still shows `0/1` email verified and the SNS email subscription is `Pending confirmation`; the owner must confirm both emails before notification delivery is operational.
+
+## Recovery and rollback
+
+- Application rollback: redeploy the last known-good immutable commit through `Deploy staging`; CloudFormation retains prior task definitions and ECS replaces tasks without database changes.
+- Infrastructure rollback: create and review a CloudFormation change set from the previous template revision before execution. Do not delete the stacks, résumé bucket, database or Secrets Manager entries.
+- Notification recovery: if the AWS verification page requires a console login, an IAM administrator or the root user can reset the existing IAM user's console password. Confirm both the AWS Budgets recipient and SNS subscription links, then recheck that each status is verified/confirmed.
+
+## Remaining action
+
+The technical hardening and deployment are complete. Session 4's notification exit criterion remains open only until the owner completes the two email confirmations; no code or infrastructure change is required for that action.
 
 No secret value, notification address, authentication cookie, résumé content or provider response body is included in this report.

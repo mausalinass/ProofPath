@@ -72,18 +72,20 @@ Evidence: [Session 3 integrations and full synthetic journey](Session_3_Syntheti
 
 ### Session 4 - Security and DevOps hardening
 
-- [ ] Add appropriate security headers to frontend responses from CloudFront.
-- [ ] Reduce broad IAM permissions and document justified exceptions.
-- [ ] Review GitHub OIDC and CloudFormation roles.
-- [ ] Resolve the production ECS subnet and internal TLS design.
-- [ ] Configure actionable alarms for API, ECS, RDS and readiness failures.
-- [ ] Attach notification destinations to alarms.
-- [ ] Confirm AWS budget and cost alerts.
-- [ ] Validate logs, metrics and trace correlation.
-- [ ] Reconfirm S3 encryption and public-access blocking.
-- [ ] Define object and version retention rules.
+- [x] Add appropriate security headers to frontend responses from CloudFront.
+- [x] Reduce broad IAM permissions and document justified exceptions.
+- [x] Review GitHub OIDC and CloudFormation roles.
+- [x] Resolve the production ECS subnet and internal TLS design.
+- [x] Configure actionable alarms for API, ECS, RDS and readiness failures.
+- [x] Attach notification destinations to alarms. Owner email subscription confirmation remains pending.
+- [x] Confirm AWS budget and cost alerts. The USD 100 monthly budget and three alerts are healthy; recipient verification remains pending.
+- [x] Validate logs, metrics and trace correlation.
+- [x] Reconfirm S3 encryption and public-access blocking.
+- [x] Define object and version retention rules.
 
 Exit criterion: the infrastructure is protected, observable and able to notify the owner of failures or unexpected costs.
+
+Evidence: [Session 4 security and DevOps hardening](Session_4_Security_DevOps_Hardening.md). The controls are deployed; the exit criterion remains open only until the owner confirms the AWS Budgets and SNS email links.
 
 ### Session 5 - Product and production readiness
 
