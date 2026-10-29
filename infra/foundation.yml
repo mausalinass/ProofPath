@@ -11,9 +11,14 @@ Parameters:
   BudgetAlertEmail:
     Type: String
     Default: ''
-    Description: Optional email for an AWS monthly cost alert.
+    Description: Optional owner email for AWS budget and operational alarm notifications.
+  WebBucketName:
+    Type: String
+    Default: ''
+    Description: Existing ProofPath web bucket name used to scope the GitHub deployment role after the first web deployment.
 Conditions:
   HasBudgetAlertEmail: !Not [!Equals [!Ref BudgetAlertEmail, '']]
+  HasWebBucketName: !Not [!Equals [!Ref WebBucketName, '']]
 Resources:
   Vpc:
     Type: AWS::EC2::VPC
@@ -102,7 +107,11 @@ Resources:
       BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
       VersioningConfiguration: { Status: Enabled }
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
-      LifecycleConfiguration: { Rules: [{ Id: abort-incomplete-uploads, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }] }
+      LifecycleConfiguration:
+        Rules:
+          - { Id: abort-incomplete-uploads, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }
+          - { Id: expire-noncurrent-resume-versions, Status: Enabled, NoncurrentVersionExpiration: { NoncurrentDays: 30 } }
+          - { Id: remove-expired-delete-markers, Status: Enabled, ExpiredObjectDeleteMarker: true }
   ApplicationSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -152,8 +161,26 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: ['ec2:*', 'elasticloadbalancing:*', 'ecs:*', 'ecr:*', 'logs:*', 'cloudwatch:*', 'cloudfront:*', 's3:*', 'rds:*', 'secretsmanager:*']
+                Action: ['ec2:Describe*']
                 Resource: '*'
+              - Effect: Allow
+                Action: ['elasticloadbalancing:AddTags', 'elasticloadbalancing:CreateListener', 'elasticloadbalancing:CreateLoadBalancer', 'elasticloadbalancing:CreateRule', 'elasticloadbalancing:CreateTargetGroup', 'elasticloadbalancing:DeleteListener', 'elasticloadbalancing:DeleteLoadBalancer', 'elasticloadbalancing:DeleteRule', 'elasticloadbalancing:DeleteTargetGroup', 'elasticloadbalancing:DeregisterTargets', 'elasticloadbalancing:Describe*', 'elasticloadbalancing:ModifyListener', 'elasticloadbalancing:ModifyLoadBalancerAttributes', 'elasticloadbalancing:ModifyRule', 'elasticloadbalancing:ModifyTargetGroup', 'elasticloadbalancing:ModifyTargetGroupAttributes', 'elasticloadbalancing:RegisterTargets', 'elasticloadbalancing:RemoveTags', 'elasticloadbalancing:SetSecurityGroups', 'elasticloadbalancing:SetSubnets']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['ecs:CreateCluster', 'ecs:CreateService', 'ecs:DeleteCluster', 'ecs:DeleteService', 'ecs:DeregisterTaskDefinition', 'ecs:DescribeClusters', 'ecs:DescribeServices', 'ecs:DescribeTaskDefinition', 'ecs:ListTagsForResource', 'ecs:RegisterTaskDefinition', 'ecs:TagResource', 'ecs:UntagResource', 'ecs:UpdateCluster', 'ecs:UpdateClusterSettings', 'ecs:UpdateService']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['logs:CreateLogGroup', 'logs:DeleteLogGroup', 'logs:DeleteMetricFilter', 'logs:DescribeLogGroups', 'logs:DescribeMetricFilters', 'logs:ListTagsForResource', 'logs:PutMetricFilter', 'logs:PutRetentionPolicy', 'logs:TagResource', 'logs:UntagResource']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['cloudwatch:DeleteAlarms', 'cloudwatch:DescribeAlarms', 'cloudwatch:PutMetricAlarm']
+                Resource: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:proofpath-*'
+              - Effect: Allow
+                Action: ['cloudfront:*']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['s3:CreateBucket', 's3:DeleteBucket', 's3:DeleteBucketPolicy', 's3:Get*', 's3:ListBucket', 's3:PutBucketPolicy', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging', 's3:PutBucketVersioning', 's3:PutEncryptionConfiguration', 's3:PutLifecycleConfiguration']
+                Resource: [!Sub 'arn:${AWS::Partition}:s3:::proofpath-*', !Sub 'arn:${AWS::Partition}:s3:::proofpath-*/*']
               - Effect: Allow
                 Action: ['iam:GetRole', 'iam:PassRole']
                 Resource: [!GetAtt EcsExecutionRole.Arn, !GetAtt EcsTaskRole.Arn]
@@ -169,6 +196,20 @@ Resources:
       NotificationsWithSubscribers:
         - Notification: { ComparisonOperator: GREATER_THAN, NotificationType: FORECASTED, Threshold: 80, ThresholdType: PERCENTAGE }
           Subscribers: [{ Address: !Ref BudgetAlertEmail, SubscriptionType: EMAIL }]
+        - Notification: { ComparisonOperator: GREATER_THAN, NotificationType: ACTUAL, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ Address: !Ref BudgetAlertEmail, SubscriptionType: EMAIL }]
+        - Notification: { ComparisonOperator: GREATER_THAN, NotificationType: ACTUAL, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ Address: !Ref BudgetAlertEmail, SubscriptionType: EMAIL }]
+  OperationalAlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasBudgetAlertEmail
+    Properties:
+      TopicName: !Sub 'proofpath-${EnvironmentName}-operations'
+      KmsMasterKeyId: alias/aws/sns
+  OperationalAlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasBudgetAlertEmail
+    Properties: { Protocol: email, Endpoint: !Ref BudgetAlertEmail, TopicArn: !Ref OperationalAlarmTopic }
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -197,11 +238,23 @@ Resources:
               - { Effect: Allow, Action: ['iam:PassRole'], Resource: !GetAtt CloudFormationExecutionRole.Arn }
               - { Effect: Allow, Action: ['ecr:GetAuthorizationToken'], Resource: '*' }
               - { Effect: Allow, Action: ['ecr:BatchCheckLayerAvailability', 'ecr:GetDownloadUrlForLayer', 'ecr:BatchGetImage', 'ecr:PutImage', 'ecr:InitiateLayerUpload', 'ecr:UploadLayerPart', 'ecr:CompleteLayerUpload'], Resource: [!GetAtt ApiRepository.Arn, !GetAtt WorkerRepository.Arn] }
-              - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket'], Resource: '*' }
-              - { Effect: Allow, Action: ['cloudfront:CreateInvalidation'], Resource: '*' }
-              - { Effect: Allow, Action: ['ecs:RunTask', 'ecs:DescribeTasks'], Resource: '*' }
+              - !If
+                - HasWebBucketName
+                - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: !Sub 'arn:${AWS::Partition}:s3:::${WebBucketName}/*' }
+                - !Ref 'AWS::NoValue'
+              - !If
+                - HasWebBucketName
+                - { Effect: Allow, Action: ['s3:ListBucket'], Resource: !Sub 'arn:${AWS::Partition}:s3:::${WebBucketName}' }
+                - !Ref 'AWS::NoValue'
+              - { Effect: Allow, Action: ['cloudfront:CreateInvalidation'], Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/*' }
+              - Effect: Allow
+                Action: ['ecs:RunTask']
+                Resource: !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/proofpath-${EnvironmentName}-api:*'
+                Condition: { ArnEquals: { 'ecs:cluster': !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/proofpath-${EnvironmentName}' } }
+              - { Effect: Allow, Action: ['ecs:DescribeTasks'], Resource: !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/proofpath-${EnvironmentName}/*' }
               - { Effect: Allow, Action: ['ecs:DescribeServices'], Resource: !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/proofpath-${EnvironmentName}/*' }
-              - { Effect: Allow, Action: ['s3:GetBucketPublicAccessBlock'], Resource: !GetAtt ResumeBucket.Arn }
+              - { Effect: Allow, Action: ['cloudwatch:DescribeAlarms'], Resource: '*' }
+              - { Effect: Allow, Action: ['s3:GetBucketPublicAccessBlock', 's3:GetBucketVersioning', 's3:GetEncryptionConfiguration', 's3:GetLifecycleConfiguration'], Resource: !GetAtt ResumeBucket.Arn }
               - { Effect: Allow, Action: ['iam:PassRole'], Resource: [!GetAtt EcsExecutionRole.Arn, !GetAtt EcsTaskRole.Arn] }
 Outputs:
   VpcId: { Value: !Ref Vpc }
@@ -214,8 +267,10 @@ Outputs:
   ApplicationSecretArn: { Value: !Ref ApplicationSecret }
   DatabaseSecretArn: { Value: !GetAtt Database.MasterUserSecret.SecretArn }
   DatabaseHost: { Value: !GetAtt Database.Endpoint.Address }
+  DatabaseIdentifier: { Value: !Ref Database }
   ResumeBucket: { Value: !Ref ResumeBucket }
   ApiRepositoryUri: { Value: !GetAtt ApiRepository.RepositoryUri }
   WorkerRepositoryUri: { Value: !GetAtt WorkerRepository.RepositoryUri }
   GitHubDeployRoleArn: { Value: !GetAtt GitHubDeployRole.Arn }
   CloudFormationExecutionRoleArn: { Value: !GetAtt CloudFormationExecutionRole.Arn }
+  OperationalAlarmTopicArn: { Condition: HasBudgetAlertEmail, Value: !Ref OperationalAlarmTopic }

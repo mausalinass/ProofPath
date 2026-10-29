@@ -15,6 +15,7 @@ Parameters:
   ApplicationSecretArn: { Type: String, NoEcho: true }
   DatabaseSecretArn: { Type: String, NoEcho: true }
   DatabaseHost: { Type: String }
+  DatabaseIdentifier: { Type: String }
   DatabaseName: { Type: String, Default: proofpath }
   DatabaseUsername: { Type: String, Default: proofpath }
   ResumeBucket: { Type: String }
@@ -22,7 +23,10 @@ Parameters:
   OriginVerifySecret: { Type: String, NoEcho: true, MinLength: 32 }
   FileSecurityReviewed: { Type: String, Default: 'true', AllowedValues: ['true'] }
   OpenAIPrivacyReviewed: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  AlarmTopicArn: { Type: String, Default: '' }
   DesiredCount: { Type: Number, Default: 1, MinValue: 1, MaxValue: 4 }
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, '']]
 Resources:
   Cluster: { Type: AWS::ECS::Cluster, Properties: { ClusterName: !Sub 'proofpath-${EnvironmentName}', ClusterSettings: [{ Name: containerInsights, Value: enabled }] } }
   ApiLogs: { Type: AWS::Logs::LogGroup, Properties: { LogGroupName: !Sub '/proofpath/${EnvironmentName}/api', RetentionInDays: 30 } }
@@ -145,9 +149,128 @@ Resources:
       DesiredCount: !Ref DesiredCount
       LaunchType: FARGATE
       NetworkConfiguration: { AwsvpcConfiguration: { AssignPublicIp: ENABLED, SecurityGroups: !Ref TaskSecurityGroups, Subnets: !Ref PublicSubnets } }
+  ReadinessFailureMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogs
+      FilterPattern: '"Readiness check failed"'
+      MetricTransformations: [{ MetricNamespace: ProofPath, MetricName: ReadinessFailures, MetricValue: '1', DefaultValue: 0 }]
   Api5xxAlarm:
     Type: AWS::CloudWatch::Alarm
-    Properties: { AlarmDescription: ProofPath API 5xx responses, Namespace: AWS/ApplicationELB, MetricName: HTTPCode_Target_5XX_Count, Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }], Statistic: Sum, Period: 300, EvaluationPeriods: 1, Threshold: 5, ComparisonOperator: GreaterThanOrEqualToThreshold, TreatMissingData: notBreaching }
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-api-5xx'
+      AlarmDescription: ProofPath API returned at least five 5xx responses in five minutes.
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  UnhealthyTargetAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-api-unhealthy-target'
+      AlarmDescription: ProofPath API target is unhealthy behind the internal load balancer.
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }, { Name: TargetGroup, Value: !GetAtt TargetGroup.TargetGroupFullName }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  ApiTaskCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-api-task-count'
+      AlarmDescription: ProofPath API has fewer than one running ECS task.
+      Namespace: ECS/ContainerInsights
+      MetricName: RunningTaskCount
+      Dimensions: [{ Name: ClusterName, Value: !Ref Cluster }, { Name: ServiceName, Value: !GetAtt ApiService.Name }]
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  WorkerTaskCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-worker-task-count'
+      AlarmDescription: ProofPath Worker has fewer than one running ECS task.
+      Namespace: ECS/ContainerInsights
+      MetricName: RunningTaskCount
+      Dimensions: [{ Name: ClusterName, Value: !Ref Cluster }, { Name: ServiceName, Value: !GetAtt WorkerService.Name }]
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  DatabaseCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-database-cpu'
+      AlarmDescription: ProofPath PostgreSQL CPU exceeded 80 percent for ten minutes.
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DatabaseIdentifier }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  DatabaseStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-database-free-storage'
+      AlarmDescription: ProofPath PostgreSQL free storage fell below 2 GiB.
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DatabaseIdentifier }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+  ReadinessFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'proofpath-${EnvironmentName}-readiness-failure'
+      AlarmDescription: ProofPath public readiness endpoint returned a non-success response.
+      Namespace: ProofPath
+      MetricName: ReadinessFailures
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
 Outputs:
   ApiDomain: { Value: !GetAtt LoadBalancer.DNSName }
   ApiLoadBalancerArn: { Value: !Ref LoadBalancer }

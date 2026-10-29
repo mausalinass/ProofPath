@@ -8,7 +8,7 @@ jobs:
     environment: staging
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Enforce release gates
         env:
           OPENAI_PRIVACY_REVIEWED: "${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
@@ -16,7 +16,7 @@ jobs:
         run: |
           test "$OPENAI_PRIVACY_REVIEWED" = "true" || { echo "OpenAI privacy review is incomplete."; exit 1; }
           test "${#ORIGIN_SECRET}" -ge 32 || { echo "Origin verification secret is missing or too short."; exit 1; }
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@v6
         with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
@@ -35,8 +35,10 @@ jobs:
             echo "APPLICATION_SECRET=$(get_output ApplicationSecretArn)"
             echo "DATABASE_SECRET=$(get_output DatabaseSecretArn)"
             echo "DATABASE_HOST=$(get_output DatabaseHost)"
+            echo "DATABASE_IDENTIFIER=$(get_output DatabaseIdentifier)"
             echo "RESUME_BUCKET=$(get_output ResumeBucket)"
             echo "CFN_ROLE=$(get_output CloudFormationExecutionRoleArn)"
+            echo "ALARM_TOPIC=$(get_output OperationalAlarmTopicArn)"
           } >> "$GITHUB_ENV"
       - name: Build and publish immutable containers
         env: { REGISTRY: "${{ steps.ecr.outputs.registry }}", TAG: "${{ github.sha }}" }
@@ -60,9 +62,9 @@ jobs:
             --parameter-overrides EnvironmentName=staging ApiImage="$REGISTRY/proofpath-api:$TAG" WorkerImage="$REGISTRY/proofpath-worker:$TAG" \
             VpcId="$VPC_ID" PublicSubnets="$PUBLIC_SUBNETS" PrivateSubnets="$PRIVATE_SUBNETS" \
             LoadBalancerSecurityGroups="$ALB_SG" TaskSecurityGroups="$TASK_SG" ExecutionRoleArn="$EXECUTION_ROLE" TaskRoleArn="$TASK_ROLE" \
-            ApplicationSecretArn="$APPLICATION_SECRET" DatabaseSecretArn="$DATABASE_SECRET" DatabaseHost="$DATABASE_HOST" \
+            ApplicationSecretArn="$APPLICATION_SECRET" DatabaseSecretArn="$DATABASE_SECRET" DatabaseHost="$DATABASE_HOST" DatabaseIdentifier="$DATABASE_IDENTIFIER" \
             ResumeBucket="$RESUME_BUCKET" FrontendOrigin=https://placeholder.invalid OriginVerifySecret="$ORIGIN_SECRET" \
-            FileSecurityReviewed=true OpenAIPrivacyReviewed="${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
+            AlarmTopicArn="$ALARM_TOPIC" FileSecurityReviewed=true OpenAIPrivacyReviewed="${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
       - name: Deploy same-origin HTTPS frontend
         env: { ORIGIN_SECRET: "${{ secrets.PROOFPATH_ORIGIN_VERIFY_SECRET }}" }
         run: |
@@ -81,16 +83,16 @@ jobs:
             --parameter-overrides EnvironmentName=staging ApiImage="$REGISTRY/proofpath-api:$TAG" WorkerImage="$REGISTRY/proofpath-worker:$TAG" \
             VpcId="$VPC_ID" PublicSubnets="$PUBLIC_SUBNETS" PrivateSubnets="$PRIVATE_SUBNETS" \
             LoadBalancerSecurityGroups="$ALB_SG" TaskSecurityGroups="$TASK_SG" ExecutionRoleArn="$EXECUTION_ROLE" TaskRoleArn="$TASK_ROLE" \
-            ApplicationSecretArn="$APPLICATION_SECRET" DatabaseSecretArn="$DATABASE_SECRET" DatabaseHost="$DATABASE_HOST" \
+            ApplicationSecretArn="$APPLICATION_SECRET" DatabaseSecretArn="$DATABASE_SECRET" DatabaseHost="$DATABASE_HOST" DatabaseIdentifier="$DATABASE_IDENTIFIER" \
             ResumeBucket="$RESUME_BUCKET" FrontendOrigin="$PUBLIC_URL" OriginVerifySecret="$ORIGIN_SECRET" \
-            FileSecurityReviewed=true OpenAIPrivacyReviewed="${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
+            AlarmTopicArn="$ALARM_TOPIC" FileSecurityReviewed=true OpenAIPrivacyReviewed="${{ vars.PROOFPATH_OPENAI_PRIVACY_REVIEWED }}"
       - name: Apply database migrations
         shell: pwsh
         run: ./scripts/run-production-migration.ps1
         env:
           AWS_STACK_NAME: proofpath-staging-app
           PROOFPATH_MIGRATION_NETWORK: "awsvpcConfiguration={subnets=[${{ env.PUBLIC_SUBNETS }}],securityGroups=[${{ env.TASK_SG }}],assignPublicIp=ENABLED}"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - name: Build and publish static site
         run: |
@@ -108,4 +110,13 @@ jobs:
           aws ecs wait services-stable --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE"
           curl --fail --retry 18 --retry-delay 10 "$PUBLIC_URL/health/ready"
           test "$(curl -sS -o /dev/null -w '%{http_code}' "$PUBLIC_URL/api/v1/resumes")" = "401"
+          curl -sSI "$PUBLIC_URL/" | grep -qi '^strict-transport-security: max-age=63072000; includesubdomains; preload'
+          curl -sSI "$PUBLIC_URL/" | grep -qi '^content-security-policy:'
+          curl -sSI "$PUBLIC_URL/" | grep -qi '^permissions-policy:'
+          curl -sSI "$PUBLIC_URL/api/v1/auth/csrf" | grep -qi '^x-trace-id:'
           aws s3api get-public-access-block --bucket "$RESUME_BUCKET" --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets]' --output text | grep -q $'True\tTrue\tTrue\tTrue'
+          test "$(aws s3api get-bucket-versioning --bucket "$RESUME_BUCKET" --query Status --output text)" = "Enabled"
+          test "$(aws s3api get-bucket-encryption --bucket "$RESUME_BUCKET" --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)" = "AES256"
+          test "$(aws s3api get-bucket-lifecycle-configuration --bucket "$RESUME_BUCKET" --query 'length(Rules)' --output text)" -ge 3
+          test "$(aws cloudwatch describe-alarms --alarm-name-prefix proofpath-staging --query 'length(MetricAlarms)' --output text)" -ge 7
+          test "$(aws cloudwatch describe-alarms --alarm-name-prefix proofpath-staging --query 'length(MetricAlarms[?length(AlarmActions)==`0`])' --output text)" = "0"

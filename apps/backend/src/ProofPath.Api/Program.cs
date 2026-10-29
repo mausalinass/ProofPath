@@ -147,8 +147,11 @@ app.Use(async (context, next) =>
     if (context.Request.Path.StartsWithSegments("/api")) context.Response.Headers.CacheControl = "no-store";
     await next(context);
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ProofPath.Request");
+    var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
+    if (context.Request.Path.Equals("/health/ready", StringComparison.OrdinalIgnoreCase) && context.Response.StatusCode != StatusCodes.Status200OK)
+        logger.LogWarning("Readiness check failed status={StatusCode} trace={TraceId}", context.Response.StatusCode, traceId);
     logger.LogInformation("HTTP {Method} completed {StatusCode} in {ElapsedMs}ms trace={TraceId}", context.Request.Method, context.Response.StatusCode,
-        Stopwatch.GetElapsedTime(started).TotalMilliseconds, Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier);
+        Stopwatch.GetElapsedTime(started).TotalMilliseconds, traceId);
 });
 app.UseCors("Frontend");
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing")) app.UseHttpsRedirection();

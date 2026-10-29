@@ -17,6 +17,8 @@ Deploy `infra/foundation.yml` in `us-east-2` as stack `proofpath-foundation` fro
 - a GitHub OIDC role restricted to `mausalinass/ProofPath` and the `staging` environment;
 - an optional USD 100 monthly budget with a forecast alert at 80%.
 
+When `BudgetAlertEmail` is supplied, the foundation also creates the encrypted `proofpath-staging-operations` SNS topic, an email subscription, forecast and actual budget notifications, and exposes the topic to the application stack's alarms. The owner must confirm the SNS subscription email before alarms can deliver. Do not record the address in project documentation or logs.
+
 The default CloudFront prefix-list ID is for `us-east-2`. Verify it in VPC > Managed prefix lists before deployment. If the GitHub OIDC provider already exists in the account, import or reuse it instead of creating a duplicate.
 
 The foundation has paid resources. RDS, Fargate, the Application Load Balancer, public IPv4 addresses, logs and traffic can incur charges even at low usage. Remove the staging application and web stacks when testing ends; the résumé bucket and database snapshot are retained intentionally.
@@ -47,6 +49,8 @@ Run the `Deploy staging` workflow only after CI succeeds. It builds immutable im
 - every S3 public-access block remains enabled.
 
 The internal ALB has no public route. Its security group accepts only the AWS-managed CloudFront origin-facing prefix list, and the listener also requires a secret header. CloudFront reaches it through a private VPC origin.
+
+The frontend CloudFront behavior applies HSTS, CSP, frame denial, MIME sniffing protection, a strict referrer policy, Permissions Policy, COOP and CORP. The API keeps its stricter `default-src 'none'` policy. Deployment validation fails if the public frontend loses HSTS, CSP or Permissions Policy.
 
 ### CloudFront viewer scheme and antiforgery cookies
 
@@ -97,6 +101,22 @@ GitHub App setup redirects use `installation_id`, `setup_action` (`install` or `
 Private résumé operations verify the bucket's public-access block before reading or writing objects. The ECS task role therefore needs `s3:GetBucketPublicAccessBlock` on the résumé bucket in addition to its object permissions and `s3:ListBucket`. If upload logs show that exact denied action, restore the bucket-scoped permission from `infra/foundation.yml`; do not disable the runtime privacy check or grant `s3:*`.
 
 For a repeatable staging check, run `scripts/session3-synthetic-journey.ps1` only with a dedicated synthetic account and synthetic résumé. Its output is deliberately limited to HTTP statuses, sanitized job states and aggregate counts. Never use a real résumé or production credential in this script.
+
+## Alarms, logs and owner notification
+
+The application stack creates alarms for API 5xx responses, unhealthy ALB targets, missing API and Worker tasks, RDS CPU, RDS free storage and explicit readiness failures. Alarm and recovery actions publish to the foundation SNS topic. Container Insights provides ECS task-count metrics; API and Worker logs retain 30 days, ClamAV logs retain 14 days, and request logs correlate the response `X-Trace-Id` with the same sanitized trace identifier in CloudWatch.
+
+The readiness middleware emits only status and trace ID when `/health/ready` is not HTTP 200. A metric filter converts that event into `ProofPath/ReadinessFailures`; it never records database errors, credentials, request bodies or résumé content. After deployment, confirm all `proofpath-staging-*` alarms have at least one action and the SNS subscription is `Confirmed`. Test delivery with the SNS console's publish function only with owner approval; do not force a production alarm by stopping services.
+
+## IAM scope and justified exceptions
+
+The GitHub OIDC trust is restricted to the exact ProofPath repository identity, the `staging` environment and the STS audience. The deploy role can update only `proofpath-*` stacks, push only the two ProofPath ECR repositories, pass only the reviewed CloudFormation/ECS roles, run only the staging migration task family, access the named résumé and web buckets, invalidate distributions in this account, and read the validation controls used by the workflow.
+
+The CloudFormation service role uses explicit service action lists instead of service-wide permissions. Some resource wildcards remain justified: create/register APIs do not expose a resource ARN before creation, EC2 and load-balancer discovery APIs require `Resource: *`, and CloudFront control-plane operations include AWS-managed policies and global resources. The role is assumable only by CloudFormation and the deploy role can pass it only to named ProofPath stacks. Re-review these exceptions whenever a new stack resource is introduced.
+
+## Résumé object and version retention
+
+The private résumé bucket remains AES-256 encrypted, versioned and fully publicly blocked. Incomplete multipart uploads expire after one day, noncurrent object versions expire after 30 days, and expired delete markers are removed. Current résumé objects do not expire automatically because user-data deletion and current-object retention are a Session 5 product/privacy decision; deletion continues through the application's ownership-checked workflow.
 
 ## Production promotion
 
