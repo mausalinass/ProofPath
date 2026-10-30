@@ -33,7 +33,7 @@ Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and pr
 - Public `/` and `/login` returned HTTP 200 with two-year HSTS preload, restrictive CSP, `nosniff` and Permissions Policy headers. `/api/v1/resumes` returned HTTP 401 without authentication; the CSRF endpoint returned HTTP 200 with `X-Trace-Id`.
 - A generated `X-Trace-Id` was found in the corresponding sanitized API log event. No recent API/Worker error matches or private-key material were found during the log review.
 - The deployment gate confirmed seven CloudWatch alarms with alarm actions, and confirmed the résumé bucket's public-access block, versioning, AES-256 encryption and three lifecycle controls.
-- The monthly USD 100 budget is healthy and has forecast 80%, actual 80% and actual 100% alerts. AWS Budgets still shows `0/1` email verified and the SNS email subscription is `Pending confirmation`; the owner must confirm both emails before notification delivery is operational.
+- The monthly USD 100 budget is healthy and has forecast 80%, actual 80% and actual 100% alerts. The owner confirmed one direct AWS Budgets recipient and the operational SNS email subscription. An additional redundant direct recipient remains pending, but both required delivery paths are operational.
 
 ## Recovery and rollback
 
@@ -41,8 +41,8 @@ Session 4 hardens the deployed CloudFront, IAM, monitoring, cost controls and pr
 - Infrastructure rollback: create and review a CloudFormation change set from the previous template revision before execution. Do not delete the stacks, résumé bucket, database or Secrets Manager entries.
 - Notification recovery: if the AWS verification page requires a console login, an IAM administrator or the root user can reset the existing IAM user's console password. Confirm both the AWS Budgets recipient and SNS subscription links, then recheck that each status is verified/confirmed.
 
-## Remaining action
+## Closure
 
-The technical hardening and deployment are complete. Session 4's notification exit criterion remains open only until the owner completes the two email confirmations; no code or infrastructure change is required for that action.
+The technical hardening, deployment and notification exit criterion are complete. Direct budget delivery and SNS operational delivery each have a confirmed recipient. A redundant pending direct recipient can be verified later without blocking subsequent work.
 
 No secret value, notification address, authentication cookie, résumé content or provider response body is included in this report.

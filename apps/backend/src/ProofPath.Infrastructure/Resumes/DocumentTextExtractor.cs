@@ -24,11 +24,12 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
         {
             // A coarse additional rejection, not a claim of antivirus coverage.
             var syntax = Encoding.Latin1.GetString(content);
+            if (!syntax.Contains("%%EOF", StringComparison.Ordinal) || !syntax.Contains("startxref", StringComparison.Ordinal))
+                throw new ResumeProblem("INVALID_PDF");
             if (new[] { "/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/Encrypt", "/RichMedia", "/XFA" }
                 .Any(token => syntax.Contains(token, StringComparison.Ordinal))) throw new ResumeProblem("ACTIVE_OR_ENCRYPTED_PDF");
-            try { using var pdf = PdfDocument.Open(content); if (pdf.NumberOfPages > 100) throw new ResumeProblem("DOCUMENT_TOO_COMPLEX"); }
-            catch (ResumeProblem) { throw; }
-            catch (Exception) { throw new ResumeProblem("INVALID_PDF"); }
+            // Do not invoke the complex PDF parser on the request-serving API path. Full parsing and
+            // page-count enforcement happen in the separately deployed background Worker task.
             return;
         }
         if (extension == ".docx" && contentType == Docx && content.AsSpan().StartsWith("PK\x03\x04"u8))
@@ -81,6 +82,7 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
             if (contentType == Pdf)
             {
                 using var pdf = PdfDocument.Open(content);
+                if (pdf.NumberOfPages > 100) throw new ResumeProblem("DOCUMENT_TOO_COMPLEX");
                 foreach (var page in pdf.GetPages())
                 {
                     ct.ThrowIfCancellationRequested();

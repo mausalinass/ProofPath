@@ -27,4 +27,6 @@ Staging may use OpenAI only with synthetic, non-personal test data. The GitHub e
 
 Before processing real résumés, the product owner must explicitly accept the possible default retention of content for up to 30 days or obtain Zero Data Retention / Modified Abuse Monitoring approval from OpenAI. The production environment must have its own protected approval variable and a user-facing privacy notice.
 
+Session 5 implements that fail-closed boundary: both the production API and Worker refuse to start unless the isolated production environment supplies `OpenAI:RealDataProcessingApproved=true`. The default is `false`; synthetic staging approval does not satisfy this gate. The user-facing notice is published at `/privacy`, and public registration remains disabled.
+
 Official source: https://developers.openai.com/api/docs/guides/your-data

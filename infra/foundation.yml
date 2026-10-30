@@ -12,12 +12,16 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional owner email for AWS budget and operational alarm notifications.
+  ProductionDatabase: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EmailSenderIdentityArn: { Type: String, Default: '', Description: Optional verified SES identity ARN used by the API task. }
   WebBucketName:
     Type: String
     Default: ''
     Description: Existing ProofPath web bucket name used to scope the GitHub deployment role after the first web deployment.
 Conditions:
   HasBudgetAlertEmail: !Not [!Equals [!Ref BudgetAlertEmail, '']]
+  IsProductionDatabase: !Equals [!Ref ProductionDatabase, 'true']
+  HasEmailSenderIdentity: !Not [!Equals [!Ref EmailSenderIdentityArn, '']]
   HasWebBucketName: !Not [!Equals [!Ref WebBucketName, '']]
 Resources:
   Vpc:
@@ -95,10 +99,12 @@ Resources:
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
       PubliclyAccessible: false
-      BackupRetentionPeriod: 1
+      BackupRetentionPeriod: !If [IsProductionDatabase, 35, 1]
       AutoMinorVersionUpgrade: true
-      DeletionProtection: false
-      MultiAZ: false
+      DeletionProtection: !If [IsProductionDatabase, true, false]
+      MultiAZ: !If [IsProductionDatabase, true, false]
+      CopyTagsToSnapshot: true
+      DeleteAutomatedBackups: false
   ResumeBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -150,6 +156,10 @@ Resources:
             Statement:
               - { Effect: Allow, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: !Sub '${ResumeBucket.Arn}/*' }
               - { Effect: Allow, Action: ['s3:ListBucket', 's3:GetBucketPublicAccessBlock'], Resource: !GetAtt ResumeBucket.Arn }
+              - !If
+                - HasEmailSenderIdentity
+                - { Effect: Allow, Action: ['ses:SendEmail'], Resource: !Ref EmailSenderIdentityArn }
+                - !Ref 'AWS::NoValue'
   CloudFormationExecutionRole:
     Type: AWS::IAM::Role
     Properties:

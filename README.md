@@ -54,3 +54,5 @@ Production uses GitHub OIDC rather than long-lived AWS keys. Review [the pre-dep
 - [Sprint 5](docs/Sprint_5_Status.md)
 - [Sprint 6](docs/Sprint_6_Status.md)
 - [Sprint 7](docs/Sprint_7_Status.md)
+- [Session 5 product and production readiness](docs/Session_5_Product_Production_Readiness.md)
+- [Production launch and rollback checklist](docs/Production_Launch_Checklist.md)

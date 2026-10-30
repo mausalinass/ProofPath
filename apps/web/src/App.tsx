@@ -9,10 +9,18 @@ import { ProfilePage } from './pages/ProfilePage'
 import { HomePage } from './pages/HomePage'
 import { LandingPage } from './pages/LandingPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { AccountActionPage } from './pages/AccountActionPage'
+import { PrivacyPage } from './pages/PrivacyPage'
 import './App.css'
 
 export default function App() {
-  return window.location.pathname === '/' ? <LandingPage /> : <WorkspaceApp />
+  const path = window.location.pathname
+  if (path === '/') return <LandingPage />
+  if (path === '/privacy') return <PrivacyPage />
+  if (path === '/verify-email') return <AccountActionPage action="verify" />
+  if (path === '/forgot-password') return <AccountActionPage action="forgot" />
+  if (path === '/reset-password') return <AccountActionPage action="reset" />
+  return <WorkspaceApp />
 }
 
 function WorkspaceApp() {
@@ -33,6 +41,6 @@ function WorkspaceApp() {
   else if (path === '/jobs') page = <JobsPage />
   else page = <HomePage />
   return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/home">ProofPath<span>Evidence for your next step.</span></a><nav aria-label="Main navigation">{nav.map(item => <a key={item.href} href={item.href} aria-current={path === item.href || item.href === '/evidence' && path === '/onboarding/profile' ? 'page' : undefined}>{item.label}</a>)}</nav><div className="sidebar-bottom"><p className="hint">Private candidate workspace</p><button className="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>Sign out</button></div></aside>
-    <div className="workspace"><header className="topbar"><span>Candidate workspace</span><span className="account-email">{session.data.email}</span></header><main className="content">{logout.isError && <ErrorNotice message={logout.error.message} />}{page}</main><footer>ProofPath · Evidence over claims</footer></div>
+    <div className="workspace"><header className="topbar"><span>Candidate workspace</span><span className="account-email">{session.data.email}</span></header><main className="content">{logout.isError && <ErrorNotice message={logout.error.message} />}{page}</main><footer>ProofPath · Evidence over claims · <a href="/privacy">Privacy</a></footer></div>
   </div>
 }

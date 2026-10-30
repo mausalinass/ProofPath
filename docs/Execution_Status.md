@@ -1,30 +1,26 @@
-# ProofPath — Estado actual de ejecución
+# ProofPath - Current execution status
 
-> Sprints 1–7 implementados localmente. El paquete de staging seguro está listo; la creación de recursos con costo y la decisión de privacidad sintética requieren aprobación explícita antes de ejecutarlo.
+Date: 2026-10-30.
 
-Fecha: 1 de octubre de 2026.
+## Current state
 
-## Estado actual
+- Sprints 1-7 and remediation Sessions 1-5 are implemented.
+- AWS staging is deployed through CloudFront; API, Worker and PostgreSQL are healthy.
+- The synthetic end-to-end journey, malware rejection, GitHub App flow, matching and tracking passed in staging.
+- Security headers, scoped IAM/OIDC, alarms, SNS delivery, cost controls, log correlation and private storage controls are active.
+- Account email verification, secure recovery, privacy consent, deletion behavior, production database durability and rollback procedures are implemented for final validation.
+- Public registration and real-personal-data processing remain fail-closed pending explicit production approvals.
 
-- Sprints 1–6: funciones principales implementadas y validadas localmente.
-- Sprint 7: contenedores, infraestructura declarativa, CI/CD, landing, health checks, observabilidad base y documentación implementados localmente.
-- GitHub App: instalada con acceso de solo lectura al repositorio seleccionado.
-- AWS: cuenta y MFA configurados; la fundación completa de staging y los roles OIDC están declarados y validados, pendientes de creación real.
-- Despliegue: no ejecutado.
-- Cambios previos al despliegue: auditados y preparados como un único conjunto.
+## Latest validation baseline
 
-## Pendientes
-
-La lista única y vigente está en [Auditoría previa al despliegue](Pre_Deployment_Audit.md). Los archivos de estado de cada sprint conservan evidencia detallada, pero esta auditoría prevalece si un texto histórico se contradice.
-
-## Evidencia de validación
-
-| Verificación | Resultado |
+| Verification | Result |
 | --- | --- |
-| Backend | 89 pruebas aprobadas; build sin advertencias ni errores |
-| Frontend | 12 pruebas aprobadas; ESLint y build correctos |
-| Navegador | 3 recorridos completos aprobados con PostgreSQL aislado |
-| Dependencias | NuGet y npm: 0 vulnerabilidades conocidas |
-| Contenedores | API, worker y web construyen como usuarios no administradores; smoke web y encabezados aprobados |
-| AWS | foundation, aplicación privada y frontend VPC Origin aprobados por cfn-lint |
-| Credenciales | Sin patrones de claves OpenAI, AWS, GitHub o PEM en árbol e historial Git |
+| Backend | 93 tests passed; build without warnings or errors |
+| Frontend | 13 tests passed; ESLint and production build passed |
+| Browser | Existing three synthetic Playwright journeys remain in the CI gate |
+| Dependencies | NuGet and npm: no known vulnerable packages |
+| Database recovery | Isolated PostgreSQL logical backup/restore passed with synthetic data |
+| AWS | Staging health, notifications, alarms, cost budget and private storage validated |
+| Credentials | No OpenAI, AWS, GitHub or PEM credential patterns committed |
+
+The controlling source of truth is [Completion_Checklist.md](Completion_Checklist.md). Next work is the visual redesign and independent final validation; production launch still requires the owner approvals recorded there.

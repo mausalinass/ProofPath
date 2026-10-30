@@ -102,6 +102,16 @@ Private résumé operations verify the bucket's public-access block before readi
 
 For a repeatable staging check, run `scripts/session3-synthetic-journey.ps1` only with a dedicated synthetic account and synthetic résumé. Its output is deliberately limited to HTTP statuses, sanitized job states and aggregate counts. Never use a real résumé or production credential in this script.
 
+## Account email, privacy and registration
+
+Public registration is disabled by default. Production must keep `RegistrationEnabled=false` until the owner separately approves public access, real-personal-data processing, support and abuse handling. The frontend production build hides signup unless `VITE_REGISTRATION_ENABLED=true` is deliberately supplied.
+
+Email confirmation and password recovery use short-lived ASP.NET Identity tokens protected by the database-persisted Data Protection key ring. Configure a verified Amazon SES identity in the production region, scope `ses:SendEmail` to that identity, and pass `AccountEmailEnabled=true`, `RequireConfirmedEmail=true` and the verified sender address. The API returns the same forgot-password response for known and unknown accounts and never logs reset or confirmation tokens.
+
+The privacy notice is `/privacy`. New registrations must accept the exact `PrivacyVersion` supplied to the API. Account deletion requires the current password, revokes GitHub installations, removes relational data and queues private résumé-file deletion. Older résumé versions otherwise remain private until account deletion.
+
+Staging's synthetic-data approval is not production approval. A stack named `production` cannot start its API or Worker unless the protected `RealDataProcessingApproved` value is explicitly true. Do not set it until the owner accepts the provider retention arrangement or obtains an approved retention control.
+
 ## Alarms, logs and owner notification
 
 The application stack creates alarms for API 5xx responses, unhealthy ALB targets, missing API and Worker tasks, RDS CPU, RDS free storage and explicit readiness failures. Alarm and recovery actions publish to the foundation SNS topic. Container Insights provides ECS task-count metrics; API and Worker logs retain 30 days, ClamAV logs retain 14 days, and request logs correlate the response `X-Trace-Id` with the same sanitized trace identifier in CloudWatch.
@@ -118,6 +128,16 @@ The CloudFormation service role uses explicit service action lists instead of se
 
 The private résumé bucket remains AES-256 encrypted, versioned and fully publicly blocked. Incomplete multipart uploads expire after one day, noncurrent object versions expire after 30 days, and expired delete markers are removed. Current résumé objects do not expire automatically because user-data deletion and current-object retention are a Session 5 product/privacy decision; deletion continues through the application's ownership-checked workflow.
 
+Current résumé objects and relational records are retained while the account is active. Permanent account deletion removes the identity-owned relational graph and queues every current private object for retryable deletion. Database backups expire under the environment's backup schedule and are not used to resurrect deleted accounts into the live service.
+
+## Production database backup and restore
+
+Deploy the production foundation with `ProductionDatabase=true`. This selects Multi-AZ, 35-day automated backups, deletion protection, snapshot tag copying, retained automated backups and snapshot retention on replacement/deletion. Staging intentionally keeps its lower-cost defaults.
+
+Before launch, restore an RDS snapshot into a new isolated database and validate migrations, row counts, ownership checks and application readiness without directing public traffic to it. Delete the temporary restored instance only after evidence is recorded and with owner approval for the destructive action. For a no-cost logical rehearsal, run `scripts/test-database-restore.ps1`; it uses only synthetic data and removes its disposable local containers.
+
 ## Production promotion
 
 Production needs a separate environment, role trust, privacy acceptance for real résumés, user-facing privacy notice, email verification and password recovery. Do not promote staging approval automatically.
+
+Use [Production_Launch_Checklist.md](Production_Launch_Checklist.md) for approval, launch and rollback. Never perform an in-place database rollback. Redeploy the previous immutable application first; if data rollback is required, restore the pre-deployment snapshot into isolation, validate it, and switch only through a reviewed change set.

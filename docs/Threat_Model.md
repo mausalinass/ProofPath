@@ -12,11 +12,11 @@
 
 | Boundary | Main risks | Controls |
 | --- | --- | --- |
-| Browser to API | Session theft, CSRF, brute force | Secure HTTP-only host cookies, explicit origins, antiforgery token, login rate limit, lockout, HSTS and security headers |
+| Browser to API | Session theft, CSRF, brute force, account takeover | Secure HTTP-only host cookies, explicit origins, antiforgery token, login rate limit, lockout, confirmed email, short-lived reset tokens, HSTS and security headers |
 | CloudFront to ALB | Direct-origin bypass, header spoofing, interception | Internal ALB, CloudFront origin-facing prefix-list restriction, default 403 and secret custom origin header; production requires the documented ACM-backed HTTPS origin design |
-| API/worker to storage | Public or cross-user file access, malicious upload | Private encrypted S3, blocked public access, per-user ownership and scoped task role; malware scan/quarantine remains a release blocker |
+| API/worker to storage | Public or cross-user file access, malicious upload | Private encrypted S3, blocked public access, per-user ownership, fail-closed malware scan and scoped task role; complex PDF parsing runs only in the separate Worker task |
 | GitHub | Excess repository access | GitHub App, selected repositories, read-only Contents and Metadata, short-lived installation tokens |
-| AI provider | Prompt injection and sensitive text | Structured extraction boundary, deterministic validation, no credentials in prompts/logs; provider privacy/retention approval remains a release blocker |
+| AI provider | Prompt injection and sensitive text | Structured extraction boundary, deterministic validation, redaction, `store=false`, no credentials in prompts/logs, and fail-closed production real-data approval |
 | Database | Credential disclosure, public access | Private encrypted RDS, Secrets Manager, security-group-only access and persistent encrypted session-key material |
 | Delivery | Long-lived cloud keys, image replacement | GitHub OIDC, immutable ECR tags, dependency audits, container builds and protected production environment |
 

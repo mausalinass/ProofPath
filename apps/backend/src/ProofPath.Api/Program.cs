@@ -22,6 +22,7 @@ using ProofPath.Infrastructure.Matching;
 using ProofPath.Infrastructure.Persistence;
 using ProofPath.Infrastructure.Recommendations;
 using ProofPath.Infrastructure.Resumes;
+using Amazon.SimpleEmailV2;
 
 var builder = WebApplication.CreateBuilder(args);
 ProductionConfiguration.Validate(builder.Configuration, builder.Environment);
@@ -52,7 +53,17 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.Lockout.AllowedForNewUsers = true;
     options.Lockout.MaxFailedAccessAttempts = 5;
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-}).AddEntityFrameworkStores<ProofPathDbContext>().AddSignInManager<SignInManager<ApplicationUser>>();
+    options.SignIn.RequireConfirmedEmail = builder.Configuration.GetValue<bool?>("Auth:RequireConfirmedEmail")
+        ?? !(builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+}).AddEntityFrameworkStores<ProofPathDbContext>().AddSignInManager<SignInManager<ApplicationUser>>().AddDefaultTokenProviders();
+builder.Services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.FromHours(2));
+if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing") || !builder.Configuration.GetValue<bool>("Email:Enabled"))
+    builder.Services.AddSingleton<IAccountEmailSender, DisabledAccountEmailSender>();
+else
+{
+    builder.Services.AddSingleton<IAmazonSimpleEmailServiceV2>(_ => new AmazonSimpleEmailServiceV2Client());
+    builder.Services.AddSingleton<IAccountEmailSender, SesAccountEmailSender>();
+}
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddCookie(IdentityConstants.ApplicationScheme, options =>
 {
     options.Cookie.HttpOnly = true;

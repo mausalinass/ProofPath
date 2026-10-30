@@ -10,6 +10,9 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 var builder = Host.CreateApplicationBuilder(args);
+if (string.Equals(builder.Configuration["Deployment:EnvironmentName"], "production", StringComparison.OrdinalIgnoreCase) &&
+    !builder.Configuration.GetValue<bool>("OpenAI:RealDataProcessingApproved"))
+    throw new InvalidOperationException("Production real-data processing requires explicit owner approval or an approved provider retention control.");
 builder.Services.AddDbContext<ProofPathDbContext>(options =>
     options.UseNpgsql(DatabaseConfiguration.Resolve(builder.Configuration)));
 builder.Services.AddOpenTelemetry()

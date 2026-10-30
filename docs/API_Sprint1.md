@@ -2,10 +2,15 @@
 
 Todos los endpoints privados requieren cookie de sesión. Todas las escrituras bajo `/api` requieren cookie antiforgery y header `X-CSRF-TOKEN`, obtenido mediante `GET /api/v1/auth/csrf`. Solicitar un token nuevo después de login/logout evita reutilizar un token asociado a otra identidad. Las respuestas API tienen `Cache-Control: no-store`.
 
+Los endpoints públicos de identidad incluyen `register`, `login`, `confirm-email`, `forgot-password` y `reset-password`. Confirmación y recuperación usan tokens protegidos de dos horas, rate limiting y respuestas de recuperación que no revelan si una cuenta existe. Producción exige correo confirmado y consentimiento de la versión vigente del aviso de privacidad; el registro público permanece desactivado por defecto.
+
 | Método/ruta | Contrato |
 | --- | --- |
 | GET `/api/v1/auth/csrf` | `{token}` y cookie antiforgery HttpOnly |
-| POST `/api/v1/auth/register` | email, password, firstName requerido, lastName opcional; 201 o ValidationProblem |
+| POST `/api/v1/auth/register` | email, password, firstName, aceptación y versión de privacidad; 201 o ValidationProblem |
+| POST `/api/v1/auth/confirm-email` | email y token protegido; 204 o enlace inválido/expirado |
+| POST `/api/v1/auth/forgot-password` | email; siempre 202 con respuesta no enumerable |
+| POST `/api/v1/auth/reset-password` | email, token protegido y nueva contraseña; 204 o ValidationProblem |
 | POST `/api/v1/auth/login` | email/password; 200 y cookie o 401 genérico |
 | POST `/api/v1/auth/logout` | 204 y cookie retirada |
 | GET `/api/v1/auth/me` | id/email; 401 anónimo |

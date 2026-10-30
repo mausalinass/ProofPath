@@ -1,4 +1,5 @@
 export type Session = { id: string; email: string }
+export type Registration = Session & { requiresEmailConfirmation: boolean }
 export type ProfileInput = {
   firstName: string | null; lastName: string | null; headline: string | null
   location: string | null; workAuthorization: string | null; educationSummary: string | null
@@ -44,8 +45,11 @@ export const api = {
   },
   home: () => request<Home>('/api/v1/home'),
   saveProfile: (profile: ProfileInput) => request<Profile>('/api/v1/profile', 'PUT', profile),
-  register: (values: { email: string; password: string; firstName: string; lastName: string }) => request<Session>('/api/v1/auth/register', 'POST', values),
+  register: (values: { email: string; password: string; firstName: string; lastName: string; acceptPrivacy: boolean; privacyVersion: string }) => request<Registration>('/api/v1/auth/register', 'POST', values),
   login: (email: string, password: string) => request<Session>('/api/v1/auth/login', 'POST', { email, password }),
+  confirmEmail: (email: string, token: string) => request<void>('/api/v1/auth/confirm-email', 'POST', { email, token }),
+  forgotPassword: (email: string) => request<{ message: string }>('/api/v1/auth/forgot-password', 'POST', { email }),
+  resetPassword: (email: string, token: string, password: string) => request<void>('/api/v1/auth/reset-password', 'POST', { email, token, password }),
   logout: () => request<void>('/api/v1/auth/logout', 'POST', {}),
   deleteAccount: (password: string) => request<void>('/api/v1/account', 'DELETE', { confirm: true, password }),
 }

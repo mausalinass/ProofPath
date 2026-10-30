@@ -1,6 +1,6 @@
 # ProofPath v1 completion checklist
 
-Last audit: 2026-10-26
+Last audit: 2026-10-30
 
 This document is the source of truth for finishing ProofPath v1. Historical sprint documents remain useful as evidence, but this checklist controls the remaining work.
 
@@ -77,31 +77,33 @@ Evidence: [Session 3 integrations and full synthetic journey](Session_3_Syntheti
 - [x] Review GitHub OIDC and CloudFormation roles.
 - [x] Resolve the production ECS subnet and internal TLS design.
 - [x] Configure actionable alarms for API, ECS, RDS and readiness failures.
-- [x] Attach notification destinations to alarms. Owner email subscription confirmation remains pending.
-- [x] Confirm AWS budget and cost alerts. The USD 100 monthly budget and three alerts are healthy; recipient verification remains pending.
+- [x] Attach notification destinations to alarms. The operational SNS email subscription is confirmed.
+- [x] Confirm AWS budget and cost alerts. The USD 100 monthly budget and three alerts are healthy, with a verified direct recipient.
 - [x] Validate logs, metrics and trace correlation.
 - [x] Reconfirm S3 encryption and public-access blocking.
 - [x] Define object and version retention rules.
 
 Exit criterion: the infrastructure is protected, observable and able to notify the owner of failures or unexpected costs.
 
-Evidence: [Session 4 security and DevOps hardening](Session_4_Security_DevOps_Hardening.md). The controls are deployed; the exit criterion remains open only until the owner confirms the AWS Budgets and SNS email links.
+Evidence: [Session 4 security and DevOps hardening](Session_4_Security_DevOps_Hardening.md). The owner confirmed the operational SNS subscription and a direct AWS Budgets recipient; an additional redundant direct recipient remains pending and is not a delivery blocker.
 
 ### Session 5 - Product and production readiness
 
-- [ ] Implement email verification.
-- [ ] Implement password recovery and secure reset.
-- [ ] Decide and configure public registration.
-- [ ] Publish a user-facing privacy notice and consent flow.
-- [ ] Approve the OpenAI real-data retention arrangement or obtain an appropriate data-retention control.
-- [ ] Define user-data and resume deletion/retention behavior.
-- [ ] Review and harden untrusted PDF parsing isolation.
-- [ ] Define production database backups, deletion protection and availability.
-- [ ] Perform and document a database restore test.
-- [ ] Update stale project, sprint, setup and runbook documentation.
-- [ ] Prepare production launch and rollback checklists.
+- [x] Implement email verification.
+- [x] Implement password recovery and secure reset.
+- [x] Decide and configure public registration. It remains disabled by default and for production launch.
+- [x] Publish a user-facing privacy notice and consent flow.
+- [x] Gate OpenAI real-data processing on a separate protected production approval; no approval is inferred from synthetic staging.
+- [x] Define user-data and resume deletion/retention behavior.
+- [x] Review and harden untrusted PDF parsing isolation.
+- [x] Define production database backups, deletion protection and availability.
+- [x] Perform and document a database restore test.
+- [x] Update stale project, sprint, setup and runbook documentation.
+- [x] Prepare production launch and rollback checklists.
 
 Exit criterion: ProofPath is functionally, legally and operationally ready for final validation.
+
+Evidence: [Session 5 product and production readiness](Session_5_Product_Production_Readiness.md) and [production launch checklist](Production_Launch_Checklist.md). Real personal data and public registration remain fail-closed pending the explicit approvals listed in Section 6.
 
 ## 2. Redesign the frontend
 

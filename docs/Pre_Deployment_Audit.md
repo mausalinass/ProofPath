@@ -1,6 +1,6 @@
 # Auditoría previa al despliegue
 
-Fecha: 1 de octubre de 2026.
+Fecha de actualización: 30 de octubre de 2026.
 
 ## Cierre de los cinco pasos
 
@@ -8,23 +8,19 @@ Fecha: 1 de octubre de 2026.
 | --- | --- | --- |
 | 1. Seguridad de archivos | Implementado | La imagen oficial de ClamAV está fijada por digest y analiza el archivo antes de reservar metadata o subirlo. Malware devuelve `MALWARE_DETECTED`; un scanner caído devuelve `FILE_SECURITY_UNAVAILABLE`. Ambos casos fallan cerrados. |
 | 2. Privacidad y retención de IA | Documento listo; decisión protegida | `store=false`, binario no enviado, email/teléfono redactados. Staging queda limitado a datos sintéticos. Activar la variable únicamente tras aceptar `OpenAI_Privacy_Review.md`. |
-| 3. Infraestructura AWS | Declarada y validada localmente | `foundation.yml` crea VPC, subredes, RDS, Secrets Manager, S3, ECR, roles y OIDC. La creación real espera la aprobación del costo. |
+| 3. Infraestructura AWS | Staging desplegado y producción definida | Staging está operativo. Producción agrega Multi-AZ, 35 días de backup y protección contra eliminación mediante un parámetro explícito que no cambia el costo de staging. |
 | 4. Seguridad de red | Implementada | ALB interno en subredes aisladas, CloudFront VPC Origin, lista administrada de CloudFront y encabezado secreto. No existe origen público directo. |
-| 5. Validación de staging | Automatizada; pendiente de ejecución real | El workflow espera servicios estables, comprueba HTTPS/readiness, rechazo sin sesión y bloqueo público de S3. La prueba funcional utilizará solo datos sintéticos. |
+| 5. Validación de staging | Ejecutada | Servicios estables, HTTPS/readiness, rechazo sin sesión, almacenamiento privado y recorrido sintético fueron verificados en las Sesiones 1-4. |
 
-## Pendientes antes de ejecutar staging
+## Staging completado
 
-1. Aceptar expresamente la revisión de privacidad para datos sintéticos.
-2. Aprobar la creación de recursos AWS con costo y desplegar `proofpath-foundation` desde una sesión administrativa con MFA.
-3. Sustituir los valores `REPLACE` del secreto de aplicación en Secrets Manager.
-4. Crear el entorno protegido `staging` en GitHub y colocar sus dos variables y un secreto.
-5. Ejecutar CI y `Deploy staging`; actualizar el callback de GitHub App a la URL resultante y realizar el recorrido sintético.
+La fundación, secretos, entorno protegido, CI/CD, callback y recorrido sintético ya fueron configurados y validados. Staging continúa limitado a datos sintéticos.
 
 ## Pendientes antes de producción con datos reales
 
 - Aceptación separada de la retención del proveedor o aprobación ZDR/MAM.
-- Aviso de privacidad al usuario.
-- Verificación de correo y recuperación de contraseña antes de habilitar registro público.
+- Configurar y verificar la identidad remitente de SES.
+- Ejecutar una restauración de snapshot RDS pagada en un entorno aislado.
 - Observación controlada de resultados reales antes de recalibrar matching.
 
 ## Protecciones vigentes

@@ -7,8 +7,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
+using System.Text;
 using ProofPath.Application.GitHub;
 using ProofPath.Application.Candidates;
+using ProofPath.Infrastructure.Identity;
 using ProofPath.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
@@ -116,6 +120,45 @@ public sealed class Sprint1Tests(ApiFixture fixture)
         using var client = fixture.Client();
         Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, HttpMethod.Post, "/api/v1/auth/login", new { email = Email(), password = Password })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task EmailConfirmationAndPasswordResetUseProtectedSingleUseTokens()
+    {
+        using var client = fixture.Client(); var email = Email();
+        Assert.Equal(HttpStatusCode.Created, (await Write(client, HttpMethod.Post, "/api/v1/auth/register",
+            new { email, password = Password, firstName = "Ada", acceptPrivacy = true, privacyVersion = "2026-10-30" })).StatusCode);
+
+        string confirmationToken;
+        string resetToken;
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await users.FindByEmailAsync(email); Assert.NotNull(user);
+            Assert.Equal("2026-10-30", user.PrivacyVersion); Assert.NotNull(user.PrivacyAcceptedAt);
+            confirmationToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(await users.GenerateEmailConfirmationTokenAsync(user)));
+        }
+        Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Post, "/api/v1/auth/confirm-email", new { email, token = confirmationToken })).StatusCode);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await users.FindByEmailAsync(email); Assert.NotNull(user); Assert.True(user.EmailConfirmed);
+            resetToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(await users.GeneratePasswordResetTokenAsync(user)));
+        }
+        const string replacement = "Replacement.P4ssword!";
+        Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Post, "/api/v1/auth/reset-password", new { email, token = resetToken, password = replacement })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Write(client, HttpMethod.Post, "/api/v1/auth/reset-password", new { email, token = resetToken, password = "Another-test.P4ssword!" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, HttpMethod.Post, "/api/v1/auth/login", new { email, password = Password })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Write(client, HttpMethod.Post, "/api/v1/auth/login", new { email, password = replacement })).StatusCode);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordDoesNotRevealWhetherAccountExists()
+    {
+        using var client = fixture.Client();
+        var response = await Write(client, HttpMethod.Post, "/api/v1/auth/forgot-password", new { email = Email() });
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Contains("If that verified account exists", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

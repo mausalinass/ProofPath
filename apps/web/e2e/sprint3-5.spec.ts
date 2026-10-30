@@ -6,6 +6,7 @@ test('GitHub evidence, requirement confirmation and deterministic matching compo
   await page.getByLabel('First name').fill('Ada')
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Password', { exact: true }).fill('Browser-only.P4ssword!')
+  await page.getByLabel(/I have read and accept/).check()
   await page.getByRole('button', { name: 'Create account' }).click()
   await expect(page.getByRole('heading', { name: 'Welcome, Ada.' })).toBeVisible()
 

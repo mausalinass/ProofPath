@@ -23,6 +23,12 @@ Parameters:
   OriginVerifySecret: { Type: String, NoEcho: true, MinLength: 32 }
   FileSecurityReviewed: { Type: String, Default: 'true', AllowedValues: ['true'] }
   OpenAIPrivacyReviewed: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  RealDataProcessingApproved: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  RegistrationEnabled: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  RequireConfirmedEmail: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  AccountEmailEnabled: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EmailSenderAddress: { Type: String, Default: '' }
+  PrivacyVersion: { Type: String, Default: '2026-10-30' }
   AlarmTopicArn: { Type: String, Default: '' }
   DesiredCount: { Type: Number, Default: 1, MinValue: 1, MaxValue: 4 }
 Conditions:
@@ -78,6 +84,7 @@ Resources:
           PortMappings: [{ ContainerPort: 8080 }]
           Environment:
             - { Name: ASPNETCORE_ENVIRONMENT, Value: Production }
+            - { Name: Deployment__EnvironmentName, Value: !Ref EnvironmentName }
             - { Name: Database__Host, Value: !Ref DatabaseHost }
             - { Name: Database__Name, Value: !Ref DatabaseName }
             - { Name: Database__Username, Value: !Ref DatabaseUsername }
@@ -89,6 +96,14 @@ Resources:
             - { Name: FileSecurity__ClamAvHost, Value: 127.0.0.1 }
             - { Name: FileSecurity__ClamAvPort, Value: '3310' }
             - { Name: OpenAI__PrivacyReviewed, Value: !Ref OpenAIPrivacyReviewed }
+            - { Name: OpenAI__RealDataProcessingApproved, Value: !Ref RealDataProcessingApproved }
+            - { Name: Auth__RegistrationEnabled, Value: !Ref RegistrationEnabled }
+            - { Name: Auth__RequireConfirmedEmail, Value: !Ref RequireConfirmedEmail }
+            - { Name: Auth__RequirePrivacyConsent, Value: 'true' }
+            - { Name: Email__Enabled, Value: !Ref AccountEmailEnabled }
+            - { Name: Email__SenderAddress, Value: !Ref EmailSenderAddress }
+            - { Name: Privacy__CurrentVersion, Value: !Ref PrivacyVersion }
+            - { Name: Frontend__PublicUrl, Value: !Ref FrontendOrigin }
             - { Name: Frontend__Origins__0, Value: !Ref FrontendOrigin }
             - { Name: Frontend__GitHubReturnUrl, Value: !Sub '${FrontendOrigin}/onboarding/github?github=connected' }
           Secrets:
@@ -113,6 +128,7 @@ Resources:
           Image: !Ref WorkerImage
           Environment:
             - { Name: DOTNET_ENVIRONMENT, Value: Production }
+            - { Name: Deployment__EnvironmentName, Value: !Ref EnvironmentName }
             - { Name: Database__Host, Value: !Ref DatabaseHost }
             - { Name: Database__Name, Value: !Ref DatabaseName }
             - { Name: Database__Username, Value: !Ref DatabaseUsername }
@@ -123,6 +139,7 @@ Resources:
             - { Name: FileSecurity__Provider, Value: ClamAV }
             - { Name: FileSecurity__ClamAvHost, Value: 127.0.0.1 }
             - { Name: OpenAI__PrivacyReviewed, Value: !Ref OpenAIPrivacyReviewed }
+            - { Name: OpenAI__RealDataProcessingApproved, Value: !Ref RealDataProcessingApproved }
           Secrets:
             - { Name: Database__Password, ValueFrom: !Sub '${DatabaseSecretArn}:password::' }
             - { Name: OpenAI__ApiKey, ValueFrom: !Sub '${ApplicationSecretArn}:OpenAIApiKey::' }

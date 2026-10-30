@@ -3,7 +3,7 @@ test('candidate can sign up, edit profile, return after logout, and delete their
   const email = `sprint1-${Date.now()}@example.test`; const password = 'Browser-only.P4ssword!'
   await page.goto('/signup')
   await page.getByLabel('First name').fill('Ada'); await page.getByLabel('Email', { exact: true }).fill(email)
-  await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Create account' }).click()
+  await page.getByLabel('Password', { exact: true }).fill(password); await page.getByLabel(/I have read and accept/).check(); await page.getByRole('button', { name: 'Create account' }).click()
   await expect(page.getByRole('heading', { name: 'Welcome, Ada.' })).toBeVisible()
   await page.getByRole('link', { name: 'My Evidence', exact: true }).click()
   await page.getByLabel('Headline').fill('Software engineer'); await page.getByRole('button', { name: 'Save profile' }).click()
