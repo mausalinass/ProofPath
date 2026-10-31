@@ -1,6 +1,6 @@
 # ProofPath v1 completion checklist
 
-Last audit: 2026-10-30
+Last audit: 2026-10-31
 
 This document is the source of truth for finishing ProofPath v1. Historical sprint documents remain useful as evidence, but this checklist controls the remaining work.
 
@@ -103,7 +103,7 @@ Evidence: [Session 4 security and DevOps hardening](Session_4_Security_DevOps_Ha
 
 Exit criterion: ProofPath is functionally, legally and operationally ready for final validation.
 
-Evidence: [Session 5 product and production readiness](Session_5_Product_Production_Readiness.md) and [production launch checklist](Production_Launch_Checklist.md). Real personal data and public registration remain fail-closed pending the explicit approvals listed in Section 6.
+Evidence: [Session 5 product and production readiness](Session_5_Product_Production_Readiness.md) and [production launch checklist](Production_Launch_Checklist.md). Commit `57b7eeb6aa77dde68d2659a00acac7f3afc207d7` passed CI run `41100350130` and staging deployment run `41102083813`; the deployed frontend asset and public smoke checks were independently verified. Real personal data and public registration remain fail-closed pending the explicit approvals listed in Section 6.
 
 ## 2. Redesign the frontend
 

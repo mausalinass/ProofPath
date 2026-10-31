@@ -9,6 +9,7 @@ Date: 2026-10-30.
 - The synthetic end-to-end journey, malware rejection, GitHub App flow, matching and tracking passed in staging.
 - Security headers, scoped IAM/OIDC, alarms, SNS delivery, cost controls, log correlation and private storage controls are active.
 - Account email verification, secure recovery, privacy consent, deletion behavior, production database durability and rollback procedures are implemented for final validation.
+- Session 5 commit `57b7eeb6aa77dde68d2659a00acac7f3afc207d7` passed GitHub CI and the protected staging deployment; readiness and the published frontend asset were independently rechecked after deployment.
 - Public registration and real-personal-data processing remain fail-closed pending explicit production approvals.
 
 ## Latest validation baseline

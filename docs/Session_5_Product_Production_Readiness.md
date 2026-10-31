@@ -1,7 +1,7 @@
 # Session 5 - Product and production readiness
 
-Date: 2026-10-30  
-Environment: local validation and AWS staging configuration  
+Date: 2026-10-30 (deployment evidence finalized 2026-10-31)
+Environment: local validation and AWS staging
 Data policy: synthetic data only
 
 ## Outcome
@@ -41,6 +41,15 @@ ProofPath now has production-oriented account verification and recovery, a versi
 - CloudFormation templates and production Compose configuration validated.
 - Database logical backup/restore passed with synthetic data.
 - Secret-pattern review found no committed credential or private-key material.
+
+## Staging deployment evidence
+
+- Immutable application commit: `57b7eeb6aa77dde68d2659a00acac7f3afc207d7`.
+- GitHub Actions CI run `41100350130` (`CI #60`) completed successfully for that commit on 2026-10-30.
+- GitHub Actions deployment run `41102083813` (`Deploy staging #11`) completed successfully for the same commit. The protected workflow enforced the privacy and origin-secret release gates, applied the database migration, waited for both ECS services to stabilize, and revalidated readiness, security headers, protected API behavior, S3 controls and CloudWatch alarms.
+- Independent post-deployment checks returned HTTP 200 for `/health/ready`, `/`, `/login`, `/privacy` and `/api/v1/auth/csrf`; unauthenticated `/api/v1/resumes` correctly returned HTTP 401.
+- CloudFront served the locally built immutable frontend asset `index-9dqpJJ_n.js`, confirming that the new release reached staging rather than only passing the deployment workflow.
+- The recent API log sample contained normal HTTP 200 health traffic with trace identifiers and no exposed credential, token, resume content or other secret pattern. Historical October 7 startup errors remained visible outside the release window and were not treated as current deployment failures.
 
 ## Remaining owner approvals
 
