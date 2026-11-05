@@ -1,6 +1,6 @@
 # ProofPath v1 completion checklist
 
-Last audit: 2026-10-31
+Last audit: 2026-11-04 (frontend local integration; staging evidence retains its recorded dates)
 
 This document is the source of truth for finishing ProofPath v1. Historical sprint documents remain useful as evidence, but this checklist controls the remaining work.
 
@@ -107,15 +107,17 @@ Evidence: [Session 5 product and production readiness](Session_5_Product_Product
 
 ## 2. Redesign the frontend
 
-- [ ] Define the design direction, user journeys and responsive breakpoints.
-- [ ] Produce and approve the main-page mockups.
-- [ ] Implement the approved React component and style changes.
-- [ ] Preserve authentication, upload, matching and tracking behavior.
-- [ ] Validate mobile, tablet and desktop layouts.
-- [ ] Validate keyboard navigation, focus states, contrast and accessible labels.
-- [ ] Run frontend lint, tests, build and browser checks.
+- [x] Define the design direction, user journeys and responsive breakpoints.
+- [x] Produce and approve the main-page mockups.
+- [x] Implement the approved React component and style changes.
+- [x] Preserve authentication, upload, matching and tracking behavior.
+- [x] Validate mobile, tablet and desktop layouts.
+- [x] Validate keyboard navigation, focus states, contrast and accessible labels.
+- [x] Run frontend lint, tests, build and browser checks.
 
 Exit criterion: the approved design is implemented accessibly without functional regressions.
+
+Evidence: [Collage frontend implementation](Frontend_Collage_Implementation.md). Approved Neo-brutalist Collage integrated into the real React/API flows; local synthetic journeys and responsive checks cover 320–1440 px. External GitHub authorization, email delivery and paid-provider behavior still require staging revalidation. Section 2 completion does not close the independent accessibility, security or staging validation below.
 
 ## 3. Open the final Testing, Security and DevOps chat
 

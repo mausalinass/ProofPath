@@ -22,7 +22,7 @@ function ProfileForm({ initial }: { initial: Profile | null }) {
     client.setQueryData(['profile'], profile); void client.invalidateQueries({ queryKey: ['home'] })
   } })
   function submit(event: FormEvent) { event.preventDefault(); mutation.mutate() }
-  return <><div className="page-heading"><p className="eyebrow">MY EVIDENCE / PROFESSIONAL PROFILE</p><h1>Your story starts here.</h1><p className="muted">Keep your professional facts accurate. You can update them at any time.</p></div>
+  return <><div className="page-heading"><h1>Professional profile</h1><p className="muted">Keep your professional facts accurate. You can update them at any time.</p></div>
     <section className="card form-card"><h2>{initial ? 'Edit your profile' : 'Set up your profile'}</h2>
       <form onSubmit={submit}>
         <div className="form-grid">{(['firstName', 'lastName', 'headline', 'location', 'workAuthorization'] as const).map(field => {

@@ -5,6 +5,8 @@ import { it, expect, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
 import { api } from '../api/client'
 vi.mock('../api/client', () => ({ api: { deleteAccount: vi.fn() } }))
+vi.mock('../api/github', () => ({ github: { status: vi.fn().mockResolvedValue({ connected: true, login: 'fixture' }), disconnect: vi.fn().mockResolvedValue(undefined) } }))
+vi.mock('../api/resumes', () => ({ resumes: { list: vi.fn().mockResolvedValue([]) } }))
 
 it('requires explicit deletion confirmation and can cancel without deleting', async () => {
   const client = new QueryClient(); const user = userEvent.setup()

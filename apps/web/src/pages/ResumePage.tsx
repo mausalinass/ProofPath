@@ -23,7 +23,7 @@ export function ResumePage() {
   const client = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [selection, setSelection] = useState<string | null>(null)
+  const [selection, setSelection] = useState<string | null>(() => new URLSearchParams(window.location.search).get('resume'))
   const [fileError, setFileError] = useState('')
   const list = useQuery({ queryKey: ['resumes'], queryFn: resumes.list })
   const upload = useMutation({ mutationFn: (value: File) => resumes.upload(value), onSuccess: result => {
@@ -34,7 +34,7 @@ export function ResumePage() {
   if (list.isError) return <ErrorNotice message={list.error.message} retry={() => void list.refetch()} />
   const selected = list.data.find(item => item.id === selection) ?? list.data[0]
   return <section className="resume-workspace" aria-labelledby="resume-heading">
-    <div className="page-heading"><p className="eyebrow">RÉSUMÉ INTELLIGENCE</p><h2 id="resume-heading">Your experience, with the source attached.</h2><p className="muted">Upload, review and confirm. Only the facts you confirm become active evidence.</p></div>
+    <div className="page-heading"><h1 id="resume-heading">Résumé evidence</h1><p className="muted">Upload, review and confirm. Only the facts you confirm become active evidence.</p></div>
     <div className="card"><h3>Add a résumé</h3><p className="hint">Private PDF or DOCX · up to 10 MB · text-based documents only</p>
       <form onSubmit={event => { event.preventDefault(); if (file) upload.mutate(file) }}>
         <label>Résumé file<input ref={fileInput} type="file" accept=".pdf,.docx" disabled={upload.isPending} onChange={event => {

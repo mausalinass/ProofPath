@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JobsPage, ReviewEditor } from './JobsPage'
 import { jobs } from '../api/jobs'
 import type { JobReview, MatchView } from '../api/jobs'
+import { api } from '../api/client'
+vi.mock('../api/client', () => ({ api: { profile: vi.fn().mockResolvedValue(null) } }))
 
 vi.mock('../api/jobs', () => ({ jobs: {
   list: vi.fn(), create: vi.fn(), update: vi.fn(), review: vi.fn(), saveReview: vi.fn(),
@@ -26,6 +28,7 @@ const review: JobReview = {
 }
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(api.profile).mockResolvedValue(null)
   vi.mocked(jobs.skills).mockResolvedValue([{ id: 'react', displayName: 'React' }])
   vi.mocked(jobs.matches).mockResolvedValue([])
   vi.mocked(jobs.latestMatch).mockResolvedValue(null)
@@ -51,8 +54,10 @@ describe('job intelligence', () => {
     await screen.findByRole('option', { name: 'React' })
     await userEvent.setup().selectOptions(screen.getByLabelText('Canonical skill'), 'react')
     expect(screen.getByRole('checkbox')).not.toBeChecked()
+    expect(screen.getByRole('checkbox')).toBeDisabled()
     await userEvent.setup().click(screen.getByRole('checkbox'))
-    expect(screen.getByRole('button', { name: 'Confirm requirement set' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Confirm requirement set' })).toBeDisabled()
+    expect(jobs.confirm).not.toHaveBeenCalled()
   })
   it('locks a confirmed requirement set', async () => {
     mount(<ReviewEditor review={{ ...review, confirmedAt: '2026-09-29T00:00:00Z' }} />)

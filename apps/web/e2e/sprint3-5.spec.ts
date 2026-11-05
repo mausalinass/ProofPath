@@ -1,20 +1,20 @@
 import { test, expect } from '@playwright/test'
 
-test('GitHub evidence, requirement confirmation and deterministic matching compose end to end', async ({ page, request }) => {
+test('GitHub evidence, requirement confirmation and deterministic matching compose end to end', async ({ page, request }, testInfo) => {
   const email = `sprint3-5-${Date.now()}@example.test`
   await page.goto('/signup')
   await page.getByLabel('First name').fill('Ada')
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Password', { exact: true }).fill('Browser-only.P4ssword!')
-  await page.getByLabel(/I have read and accept/).check()
+  await page.getByLabel('Confirm password', { exact: true }).fill('Browser-only.P4ssword!'); await page.getByLabel(/I have read and accept/).check()
   await page.getByRole('button', { name: 'Create account' }).click()
-  await expect(page.getByRole('heading', { name: 'Welcome, Ada.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tu potencial empieza aquí.' })).toBeVisible()
 
   const seeded = await request.post('http://localhost:5002/fixtures/sprints-3-5', { data: { email } })
   expect(seeded.ok()).toBeTruthy()
 
   await page.goto('/onboarding/github')
-  await expect(page.getByRole('heading', { name: 'Evidence from selected code snapshots.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'GitHub evidence', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByText('proofpath-fixture/evidence-api', { exact: true })).toBeVisible()
   await expect(page.getByText('Implemented an ASP.NET Core API with authenticated endpoints.')).toBeVisible()
   await expect(page.getByText(/01234567 · src\/Program.cs/)).toBeVisible()
@@ -22,8 +22,13 @@ test('GitHub evidence, requirement confirmation and deterministic matching compo
   await page.goto('/jobs')
   await page.getByRole('button', { name: /Backend Engineer/ }).click()
   await expect(page.getByRole('heading', { name: 'Technical skills' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Importance', exact: true }).selectOption('High')
+  await expect(page.getByRole('button', { name: 'Confirm requirement set' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Save review' }).click()
+  await expect(page.getByLabel('I reviewed the source wording, alternatives, exclusions, and unresolved skills.')).toBeEnabled()
   await page.getByLabel('I reviewed the source wording, alternatives, exclusions, and unresolved skills.').check()
   await page.getByRole('button', { name: 'Confirm requirement set' }).click()
+  await page.getByText('Inspect confirmed requirements', { exact: true }).click()
   await expect(page.getByText('This requirement set is confirmed and immutable.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Calculate match' }).click()
@@ -44,4 +49,10 @@ test('GitHub evidence, requirement confirmation and deterministic matching compo
   await page.getByRole('button', { name: 'Rescan evidence' }).click()
   await expect(page.getByText(/2 immutable results stored/)).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Score history' })).toBeVisible()
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+    if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`match-result-${width}.png`), fullPage: true })
+  }
 })

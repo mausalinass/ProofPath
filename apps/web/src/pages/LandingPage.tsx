@@ -1,20 +1,14 @@
+import { CollageArt } from '../components/CollageArt'
+import { ProgressPath } from '../components/ProgressPath'
 import './LandingPage.css'
 
-const features = [
-  ['Evidence, organized', 'Turn résumés and selected GitHub work into a private, reviewable evidence profile.'],
-  ['Matches you can explain', 'See why a role fits, what is missing, and which evidence supports each requirement.'],
-  ['A plan you can act on', 'Track applications and follow focused recommendations instead of chasing a black-box score.'],
-]
-
 export function LandingPage() {
-  const registrationEnabled = import.meta.env.DEV || import.meta.env.VITE_REGISTRATION_ENABLED === 'true'
+  const destination = import.meta.env.DEV || import.meta.env.VITE_REGISTRATION_ENABLED === 'true' ? '/signup' : '/login'
   return <div className="landing">
-    <header className="landing-nav"><a className="brand" href="/">ProofPath<span>Evidence for your next step.</span></a><nav aria-label="Public navigation"><a href="#how-it-works">How it works</a><a href="/privacy">Privacy</a><a className="button" href={registrationEnabled ? '/signup' : '/login'}>{registrationEnabled ? 'Create workspace' : 'Sign in'}</a></nav></header>
-    <main>
-      <section className="landing-hero"><div><p className="eyebrow">PRIVATE CAREER INTELLIGENCE</p><h1>Know what your experience proves.</h1><p className="landing-lead">ProofPath connects your real work to real job requirements, with transparent evidence and practical next steps.</p><div className="actions"><a className="button" href={registrationEnabled ? '/signup' : '/login'}>{registrationEnabled ? 'Build your evidence profile' : 'Sign in'}</a><a className="button secondary" href="#how-it-works">See how it works</a></div><p className="landing-note">Your résumé and repository analysis remain private. You choose the sources.</p></div><aside className="match-preview" aria-label="Example match explanation"><span className="badge">EXPLAINABLE MATCH</span><strong>Backend Engineer · 82%</strong><div className="meter"><span /></div><p>Strong evidence for APIs, PostgreSQL, Docker, and delivery ownership.</p><ul><li>4 requirements supported</li><li>2 growth areas identified</li><li>Evidence linked to every signal</li></ul></aside></section>
-      <section className="landing-section" id="how-it-works"><p className="eyebrow">HOW IT WORKS</p><h2>From scattered experience to a clear story</h2><div className="feature-grid">{features.map(([title, detail], index) => <article key={title}><span>{index + 1}</span><h3>{title}</h3><p>{detail}</p></article>)}</div></section>
-      <section className="privacy-band"><div><p className="eyebrow">BUILT FOR TRUST</p><h2>Evidence without exposure</h2></div><p>Private storage, read-only GitHub access, account deletion, and traceable recommendations are part of the product design.</p><a className="button" href={registrationEnabled ? '/signup' : '/privacy'}>{registrationEnabled ? 'Start privately' : 'Review privacy'}</a></section>
-    </main>
-    <footer className="landing-footer"><span>ProofPath</span><span><a href="/privacy">Privacy</a> · Evidence over claims.</span></footer>
+    <section className="landing-hero"><div className="landing-copy"><h1>Tu trabajo<br />habla por ti.</h1><p>Conecta GitHub y tu currículum. Descubre qué demuestra tu experiencia y cómo encaja con tu próxima oportunidad.</p><a className="button" href={destination}>Analizar mi perfil <span aria-hidden="true">↗</span></a><small>Para estudiantes y recién graduados de ingeniería.</small></div><div className="landing-collage"><CollageArt kind="evidence" /><CollageArt kind="github" /></div></section>
+    <ProgressPath />
+    <section className="landing-feature card yellow" id="how-it-works"><div><h2>Encuentra el encaje.<br />Entiende el porqué.</h2><p>Compara tu experiencia con una vacante. Identifica fortalezas, requisitos por cubrir y próximos pasos.</p><a className="button secondary" href="/jobs">Ver el proceso ↗</a></div><CollageArt kind="matching" /></section>
+    <section className="landing-privacy"><CollageArt kind="privacy" /><div><h2>Tu perfil.<br />Tus decisiones.</h2><p>Elige los proyectos y el currículum que quieres analizar. Revisa la información que representa tu trabajo.</p><a href="/privacy">Leer el aviso de privacidad ↗</a></div></section>
+    <section className="landing-close card green"><h2>Dale contexto a<br />lo que construiste.</h2><a className="button secondary" href={destination}>Comenzar ↗</a></section>
   </div>
 }
