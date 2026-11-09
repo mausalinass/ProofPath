@@ -149,6 +149,8 @@ Exit criterion: all required tests pass and no unaccepted critical or high-sever
 - [ ] Document any accepted lower-severity risk, owner and review date.
 - [ ] Commit and push the verified release candidate.
 
+Progress 2026-11-09: the three frontend findings from staging validation section 4 were resolved. SPA navigation no longer depends on an `onClick` handler attached to a non-interactive container; the programmatically focused main content has a visible focus indicator; and internal GitHub, opportunity, tracking, requirement-review and profile controls now declare meaningful `name` and `autocomplete` behavior. Frontend lint, 13 Vitest tests, the production build and all 5 isolated Playwright journeys passed after the final change. Section 5 remains open at the project level until rollback/recovery validation is complete and any additional independent findings are resolved.
+
 Exit criterion: a specific immutable commit is approved as the production release candidate.
 
 ## 6. Approve production launch

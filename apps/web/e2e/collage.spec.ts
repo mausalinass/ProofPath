@@ -28,6 +28,9 @@ test('Collage scroll, floats, responsive pages and reduced motion', async ({ pag
   await expect(page.locator('.pp-resume').first()).toHaveCSS('animation-name', 'none')
   await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'Saltar al contenido' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('main#workspace-content')).toBeFocused()
+  await expect(page.locator('main#workspace-content')).toHaveCSS('outline-style', 'solid')
 })
 
 test('real dossier, SPA navigation, privacy and matcher preserve sources', async ({ page, request }, testInfo) => {
@@ -61,6 +64,19 @@ test('real dossier, SPA navigation, privacy and matcher preserve sources', async
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByLabel('Current password')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.dataset.spa)).toBe('preserved')
+  await page.goto('/onboarding/github')
+  await expect(page.getByLabel('Search repositories')).toHaveAttribute('name', 'repositorySearch')
+  await expect(page.getByLabel('Search repositories')).toHaveAttribute('autocomplete', 'off')
+  await expect(page.getByLabel('Search repositories')).toHaveAttribute('spellcheck', 'false')
+  await page.goto('/onboarding/profile')
+  await expect(page.getByLabel('First name')).toHaveAttribute('name', 'firstName')
+  await expect(page.getByLabel('First name')).toHaveAttribute('autocomplete', 'given-name')
+  await expect(page.getByLabel('Education summary')).toHaveAttribute('autocomplete', 'off')
+  await page.goto('/jobs')
+  await page.getByText('Add an opportunity', { exact: true }).click()
+  await expect(page.getByLabel('Company', { exact: false })).toHaveAttribute('name', 'company')
+  await expect(page.getByLabel('Company', { exact: false })).toHaveAttribute('autocomplete', 'off')
+  await expect(page.getByLabel('Source URL', { exact: false })).toHaveAttribute('spellcheck', 'false')
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     for (const route of ['/home', '/sources', '/jobs', '/settings']) {

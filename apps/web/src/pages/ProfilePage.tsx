@@ -27,9 +27,10 @@ function ProfileForm({ initial }: { initial: Profile | null }) {
       <form onSubmit={submit}>
         <div className="form-grid">{(['firstName', 'lastName', 'headline', 'location', 'workAuthorization'] as const).map(field => {
           const labels = { firstName: 'First name', lastName: 'Last name', headline: 'Headline', location: 'Location', workAuthorization: 'Work authorization' }
-          return <label key={field}>{labels[field]}<input value={values[field] ?? ''} onChange={e => { mutation.reset(); setValues({ ...values, [field]: e.target.value }) }} /></label>
+          const autocomplete = { firstName: 'given-name', lastName: 'family-name', headline: 'organization-title', location: 'off', workAuthorization: 'off' }
+          return <label key={field}>{labels[field]}<input name={field} autoComplete={autocomplete[field]} value={values[field] ?? ''} onChange={e => { mutation.reset(); setValues({ ...values, [field]: e.target.value }) }} /></label>
         })}</div>
-        <label>Education summary<textarea rows={4} value={values.educationSummary ?? ''} onChange={e => { mutation.reset(); setValues({ ...values, educationSummary: e.target.value }) }} /></label>
+        <label>Education summary<textarea name="educationSummary" autoComplete="off" rows={4} value={values.educationSummary ?? ''} onChange={e => { mutation.reset(); setValues({ ...values, educationSummary: e.target.value }) }} /></label>
         <p className="hint">Work authorization is a contextual fact. It does not establish a technical skill.</p>
         {mutation.isError && <ErrorNotice message={mutation.error.message} />}
         {mutation.isSuccess && <p className="notice success" role="status">Profile saved. Your changes are private and persistent.</p>}

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api/client'
 import { navigate, usePath } from './navigation'
@@ -29,13 +28,18 @@ export default function App() {
   const session = useQuery({ queryKey: ['session'], queryFn: api.session, retry: false })
   const logout = useMutation({ mutationFn: api.logout, onSuccess: () => { client.clear(); navigate('/login') } })
   useEffect(() => { document.title = 'ProofPath · ' + ({ '/': 'Tu trabajo habla por ti', '/home': 'Dossier profesional', '/jobs': 'Opportunity Matcher', '/settings': 'Privacidad', '/sources': 'Tus fuentes', '/login': 'Acceso', '/signup': 'Registro' }[path] ?? 'Tu espacio') }, [path])
-  function follow(event: MouseEvent<HTMLDivElement>) {
-    const a = (event.target as HTMLElement).closest('a')
-    if (!a || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || a.target || a.hasAttribute('download')) return
-    const url = new URL(a.href)
-    if (url.origin !== window.location.origin || url.hash || url.pathname.startsWith('/api/')) return
-    event.preventDefault(); navigate(url.pathname + url.search)
-  }
+  useEffect(() => {
+    function follow(event: globalThis.MouseEvent) {
+      const target = event.target instanceof Element ? event.target : null
+      const anchor = target?.closest('a')
+      if (!anchor || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || anchor.target || anchor.hasAttribute('download')) return
+      const url = new URL(anchor.href)
+      if (url.origin !== window.location.origin || url.hash || url.pathname.startsWith('/api/')) return
+      event.preventDefault(); navigate(url.pathname + url.search)
+    }
+    document.addEventListener('click', follow)
+    return () => document.removeEventListener('click', follow)
+  }, [])
   let page
   const publicPage = ['/', '/login', '/signup', '/privacy', '/verify-email', '/forgot-password', '/reset-password'].includes(path)
   if (path === '/') page = <LandingPage />
@@ -56,7 +60,7 @@ export default function App() {
   else if (path === '/home' || path === '/dashboard') page = <HomePage />
   else page = <section className="card"><h1>Página no encontrada.</h1><a href="/home">Volver a tu dossier ↗</a></section>
   const nav = [{ href: '/', label: 'Inicio' }, { href: '/home', label: 'Dashboard' }, { href: '/jobs', label: 'Matcher' }, { href: '/settings', label: 'Privacidad' }]
-  return <div className="collage" data-paused={paused} onClick={follow}>
+  return <div className="collage" data-paused={paused}>
     <a className="skip-link" href="#workspace-content">Saltar al contenido</a>
     <header className="app-nav"><a className="brand" href="/" aria-label="ProofPath, inicio"><span className="brand-mark" aria-hidden="true">✓</span>ProofPath</a><nav aria-label="Main navigation">{nav.map(item => <a key={item.href} href={item.href} aria-current={path === item.href || item.href === '/home' && path === '/dashboard' ? 'page' : undefined}>{item.label}</a>)}</nav><div className="nav-account">{session.data ? <button className="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>Sign out</button> : <a className="nav-login" href="/login">Entrar ↗</a>}<button className="motion-toggle" aria-pressed={paused} onClick={() => setPaused(!paused)}>{paused ? 'Reanudar movimiento' : 'Pausar movimiento'}</button></div></header>
     <main className="content" id="workspace-content" tabIndex={-1} key={publicPage ? path : 'workspace'}>

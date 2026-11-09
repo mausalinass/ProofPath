@@ -1,6 +1,6 @@
 # ProofPath — integración del diseño Collage
 
-Fecha: 2026-11-04. Estado: implementación local; pendiente validación independiente y despliegue en staging.
+Fecha: 2026-11-04. Estado actualizado 2026-11-09: rediseño activo en staging; correcciones de accesibilidad de la sección 5 verificadas localmente y pendientes de promover a staging.
 
 La dirección aprobada **01 Collage** está integrada en `apps/web`, la aplicación React existente. La navegación conserva el documento y utiliza los clientes API, cookies de sesión y protección CSRF existentes. Los datos del prototipo no se utilizan como resultados del producto.
 
@@ -74,3 +74,13 @@ No se modificó AWS ni se desplegó este rediseño. No se repitió el OAuth real
 El repositorio ya tenía cambios de frontend sin commit al comenzar. Se preservó una copia previa fuera del repositorio; no se sobrescribieron fuentes sincronizadas ni se creó un commit mezclando automáticamente todo ese trabajo.
 
 Siguiente paso del roadmap: revisión independiente de esta implementación, resolución de hallazgos y validación sintética completa en staging. La aprobación visual y esta verificación local no certifican producción.
+
+## Correcciones de validación — 2026-11-09
+
+La revisión independiente de las pantallas desplegadas no encontró un bloqueo funcional, pero dejó tres observaciones menores. Se corrigieron en conjunto y se añadieron aserciones de regresión:
+
+- La navegación SPA ahora escucha activaciones de enlaces a nivel de documento y conserva enlaces semánticos. El contenedor visual `.collage` ya no tiene un manejador `onClick`; Cmd/Ctrl-click, enlaces externos, descargas, hashes y rutas API conservan su comportamiento nativo.
+- `main#workspace-content` conserva el traslado de foco y muestra un outline de 3 px bajo `:focus-visible`. Playwright confirma que el skip link es el primer foco, que Enter traslada el foco a `main` y que el indicador calculado es sólido.
+- Los campos internos de búsqueda de repositorios, oportunidades, seguimiento, revisión de requisitos, recomendaciones y perfil declaran nombres estables y política de autocompletado. Correos, URLs y búsqueda desactivan correcciones automáticas cuando corresponde.
+
+Verificación posterior: `npm run lint`, 13 pruebas Vitest, build de producción y los 5 recorridos de `scripts/test-browser-journeys.ps1` aprobaron. El navegador confirmó navegación sin recarga, foco visible y ausencia de un manejador inline en el contenedor. La base y el almacenamiento sintéticos de cada recorrido fueron aislados y retirados al finalizar; no se utilizaron datos personales ni servicios de staging.
