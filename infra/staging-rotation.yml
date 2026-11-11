@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Refresh the two ProofPath staging ECS services after their RDS credential rotates.
+Parameters:
+  DatabaseSecretArn:
+    Type: String
+    AllowedPattern: 'arn:aws:secretsmanager:us-east-2:[0-9]{12}:secret:rds!db-.+'
+  ApiServiceArn:
+    Type: String
+    AllowedPattern: 'arn:aws:ecs:us-east-2:[0-9]{12}:service/proofpath-staging/proofpath-staging-app-ApiService-[A-Za-z0-9]+'
+  WorkerServiceArn:
+    Type: String
+    AllowedPattern: 'arn:aws:ecs:us-east-2:[0-9]{12}:service/proofpath-staging/proofpath-staging-app-WorkerService-[A-Za-z0-9]+'
+  RotationRuleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [DISABLED, ENABLED]
+Resources:
+  RotationLease:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: id, AttributeType: S }]
+      KeySchema: [{ AttributeName: id, KeyType: HASH }]
+      TimeToLiveSpecification: { AttributeName: expiresAt, Enabled: true }
+  RotationLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/proofpath-staging-rotation-refresh
+      RetentionInDays: 14
+  RotationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: 'sts:AssumeRole' }
+      Policies:
+        - PolicyName: RefreshStagingServices
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['ecs:DescribeServices', 'ecs:UpdateService']
+                Resource: [!Ref ApiServiceArn, !Ref WorkerServiceArn]
+                Condition:
+                  ArnEquals:
+                    'ecs:cluster': !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/proofpath-staging'
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !GetAtt RotationLogs.Arn
+              - Effect: Allow
+                Action: ['dynamodb:PutItem', 'dynamodb:DeleteItem']
+                Resource: !GetAtt RotationLease.Arn
+  RotationRefresh:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: proofpath-staging-rotation-refresh
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt RotationRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          EXPECTED_ACCOUNT: !Ref AWS::AccountId
+          EXPECTED_SECRET_ARN: !Ref DatabaseSecretArn
+          ECS_CLUSTER: !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/proofpath-staging'
+          API_SERVICE: !Ref ApiServiceArn
+          WORKER_SERVICE: !Ref WorkerServiceArn
+          LEASE_TABLE: !Ref RotationLease
+      Code:
+        ZipFile: |
+          from datetime import datetime
+          import os
+          from time import time
+
+          import boto3
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          config = Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1})
+          ecs = boto3.client("ecs", config=config)
+          leases = boto3.client("dynamodb", config=config)
+
+          def handler(event, context):
+              if (
+                  event.get("source") != "aws.secretsmanager"
+                  or event.get("detail-type") != "Secret Label Updated"
+                  or event.get("account") != os.environ["EXPECTED_ACCOUNT"]
+                  or event.get("region") != "us-east-2"
+                  or os.environ["EXPECTED_SECRET_ARN"] not in event.get("resources", [])
+                  or event.get("detail", {}).get("labelUpdated") != "AWSCURRENT"
+              ):
+                  return {"status": "ignored"}
+
+              rotated_at = datetime.fromisoformat(event["time"])
+              table = os.environ["LEASE_TABLE"]
+              key = {"id": {"S": "staging-rotation"}}
+              owner = {"S": context.aws_request_id}
+              now = int(time())
+              try:
+                  leases.put_item(
+                      TableName=table,
+                      Item={**key, "owner": owner, "expiresAt": {"N": str(now + 90)}},
+                      ConditionExpression="attribute_not_exists(id) OR expiresAt <= :now",
+                      ExpressionAttributeValues={":now": {"N": str(now)}},
+                  )
+              except ClientError as error:
+                  if error.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                      raise
+                  raise RuntimeError("Retry after the concurrent staging refresh") from None
+
+              try:
+                  return refresh_services(rotated_at)
+              finally:
+                  leases.delete_item(
+                      TableName=table, Key=key,
+                      ConditionExpression="#owner = :owner",
+                      ExpressionAttributeNames={"#owner": "owner"},
+                      ExpressionAttributeValues={":owner": owner},
+                  )
+
+          def refresh_services(rotated_at):
+              cluster = os.environ["ECS_CLUSTER"]
+              services = [os.environ["API_SERVICE"], os.environ["WORKER_SERVICE"]]
+              response = ecs.describe_services(cluster=cluster, services=services)
+              by_arn = {service["serviceArn"]: service for service in response["services"]}
+              if response.get("failures") or set(by_arn) != set(services):
+                  raise RuntimeError("Could not resolve both staging services")
+
+              refresh = []
+              for arn in services:
+                  service = by_arn[arn]
+                  primary = next((item for item in service["deployments"] if item["status"] == "PRIMARY"), None)
+                  if service["status"] != "ACTIVE" or primary is None:
+                      raise RuntimeError("Expected an active staging service and primary deployment")
+                  if service["desiredCount"] == 0:
+                      continue
+                  if primary.get("rolloutState") == "FAILED":
+                      raise RuntimeError("Resolve the failed staging rollout before refreshing credentials")
+                  if primary["createdAt"] >= rotated_at:
+                      continue
+                  if primary.get("rolloutState") != "COMPLETED":
+                      raise RuntimeError("Retry the refresh after the existing staging rollout")
+                  refresh.append(arn)
+
+              for arn in refresh:
+                  ecs.update_service(cluster=cluster, service=arn, forceNewDeployment=True)
+                  print(f"Requested credential refresh for {arn.rsplit('/', 1)[-1]}")
+              return {"status": "processed", "refreshCount": len(refresh)}
+  RotationInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref RotationRefresh
+      Qualifier: '$LATEST'
+      MaximumEventAgeInSeconds: 900
+      MaximumRetryAttempts: 2
+  RotationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      State: !Ref RotationRuleState
+      EventPattern:
+        account: [!Ref AWS::AccountId]
+        region: [us-east-2]
+        source: [aws.secretsmanager]
+        detail-type: [Secret Label Updated]
+        resources: [!Ref DatabaseSecretArn]
+        detail: { labelUpdated: [AWSCURRENT] }
+      Targets:
+        - Id: RefreshStagingTasks
+          Arn: !GetAtt RotationRefresh.Arn
+          RetryPolicy: { MaximumEventAgeInSeconds: 900, MaximumRetryAttempts: 2 }
+  RotationRulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref RotationRefresh
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RotationRule.Arn
+      SourceAccount: !Ref AWS::AccountId

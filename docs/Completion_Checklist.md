@@ -134,7 +134,7 @@ Evidence: [Collage frontend implementation](Frontend_Collage_Implementation.md).
 - [ ] Validate IAM, Secrets Manager, S3, RDS, ECS and CloudFront controls.
 - [ ] Run the complete synthetic product journey.
 - [ ] Test accessibility and supported screen sizes.
-- [ ] Test failure handling, alarms and operational recovery.
+- [ ] Test failure handling, alarms and operational recovery. Staging email receipt is owner-confirmed through AWS User Notifications. The live RDS credential rotation recovery drill remains open.
 - [ ] Test database backup restoration.
 - [ ] Test application rollback. The versioned staging frontend rollback passed on 2026-11-11. A production-like backend and RDS recovery drill remains pending.
 - [ ] Record evidence and severity for every finding.

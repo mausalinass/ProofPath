@@ -71,7 +71,9 @@ jobs:
       - uses: actions/setup-python@v7
         with: { python-version: '3.13' }
       - run: pip install cfn-lint
-      - run: cfn-lint infra/foundation.yml infra/production.yml infra/frontend.yml
+      - run: cfn-lint infra/foundation.yml infra/production.yml infra/frontend.yml infra/staging-rotation.yml
+      - name: Verify staging rotation recovery
+        run: python scripts/test-staging-rotation.py
       - name: Verify deployed antivirus health check
         run: python scripts/test-clamav-health.py
       - run: docker compose -f compose.production.yml config --quiet
