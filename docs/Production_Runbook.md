@@ -86,6 +86,18 @@ Confirm the frontend and `/login` return HTTP 200, `/health/live` and `/health/r
 
 This recovery is operational rather than preventive. Until secret rotation is wired to an automatic ECS redeployment, repeat the procedure after a future RDS master-password rotation or perform a controlled service deployment immediately after rotation.
 
+## Versioned staging frontend deployment and rollback
+
+Build the web client from the verified frontend commit and record the artifact hashes. Read the current `WebOriginPath` and verify the current HTML and asset hashes before staging the candidate. The `Deploy staging` workflow is for unversioned staging. Its preflight stops before deployment when the web origin is versioned, `releases/` contains objects, or verification fails unexpectedly.
+
+1. Upload candidate files to `releases/<full-commit-sha>/` with conditional S3 puts (`If-None-Match: *`). Verify SHA-256, size and cache headers. Publish `index.html` after its assets.
+2. Put the active release's content-hashed JS/CSS in the candidate prefix and the candidate's content-hashed JS/CSS in the active prefix. Use conditional puts and compare hashes if a key already exists. Test that an open tab can load its referenced assets from either origin. Keep both HTML documents intact.
+3. In `proofpath-staging-web`, create a CloudFormation change set with the previous template and parameter values, changing only `WebOriginPath`. Inspect its property details. Execute only a single in-place `Distribution` modification at `/Properties/DistributionConfig/Origins/0/OriginPath`.
+4. Wait for CloudFormation `UPDATE_COMPLETE` and CloudFront `Deployed`. Invalidate `/` and `/index.html` and wait for completion. Verify the HTML and asset hashes, a deep route, readiness HTTP 200 and protected API HTTP 401 before continuing.
+5. For rollback, repeat the change-set procedure with the prior prefix. Verify that the previous HTML is served and that the newer asset URLs still return the correct bytes. Record timestamps and restore the corrected version only after its rollback criteria have been checked. Retain both sets of objects.
+
+`main` uses the [Protect main ruleset](https://github.com/mausalinass/ProofPath/rules/27049708). Open a pull request against the current `main` and wait for `backend`, `frontend`, `e2e` and `containers-and-security` from GitHub Actions. The repository's single-maintainer flow requires zero separate reviewers. The rule has an empty bypass list and blocks branch deletion and force-pushes. If a rule itself breaks maintenance, the repository owner can edit that specific rule in Settings, record the reason and restore enforcement after recovery.
+
 ## Post-deployment validation
 
 Use only synthetic documents. Update the GitHub App callback to the final CloudFront URL, then verify login, GitHub authorization, clean résumé upload, EICAR rejection, extraction/review, job ingestion, matching and tracker recommendations. Keep public registration disabled.
@@ -117,6 +129,8 @@ Staging's synthetic-data approval is not production approval. A stack named `pro
 The application stack creates alarms for API 5xx responses, unhealthy ALB targets, missing API and Worker tasks, RDS CPU, RDS free storage and explicit readiness failures. Alarm and recovery actions publish to the foundation SNS topic. Container Insights provides ECS task-count metrics; API and Worker logs retain 30 days, ClamAV logs retain 14 days, and request logs correlate the response `X-Trace-Id` with the same sanitized trace identifier in CloudWatch.
 
 The readiness middleware emits only status and trace ID when `/health/ready` is not HTTP 200. A metric filter converts that event into `ProofPath/ReadinessFailures`; it never records database errors, credentials, request bodies or résumé content. After deployment, confirm all `proofpath-staging-*` alarms have at least one action and the SNS subscription is `Confirmed`. Test delivery with the SNS console's publish function only with owner approval; do not force a production alarm by stopping services.
+
+Inspect `describe-alarm-history --history-item-type Action` after a staging failure and recovery. An `OK` alarm and a confirmed subscription can coexist with failed delivery. On 2026-11-11 both actions failed because the CloudWatch service lacked access to the SNS topic's AWS-managed encryption key. Review a customer-managed KMS key with scoped CloudWatch access and an SNS policy constrained by source account and ProofPath alarm ARN. Confirm alarm-to-topic delivery before accepting the alerting control.
 
 ## IAM scope and justified exceptions
 

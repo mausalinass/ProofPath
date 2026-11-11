@@ -2,6 +2,8 @@
 
 ## Approval gate
 
+The independent staging review is tracked in [final staging validation](Final_Staging_Validation.md). The production release remains gated on the approved domain, cost ceiling, real-data handling and operating contacts. Public registration defaults to closed.
+
 - [ ] Record owner approval for expected AWS, domain, SES and OpenAI costs.
 - [ ] Record the real-data privacy/retention decision; set the protected production approval only after acceptance.
 - [ ] Confirm support, incident, security and account-recovery contacts.

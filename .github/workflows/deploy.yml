@@ -18,6 +18,24 @@ jobs:
           test "${#ORIGIN_SECRET}" -ge 32 || { echo "Origin verification secret is missing or too short."; exit 1; }
       - uses: aws-actions/configure-aws-credentials@v6
         with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - name: Protect versioned staging releases
+        shell: bash
+        run: |
+          if stack=$(aws cloudformation describe-stacks --stack-name proofpath-staging-web --query 'Stacks[0].[Outputs[?OutputKey==`WebBucketName`].OutputValue | [0],Parameters[?ParameterKey==`WebOriginPath`].ParameterValue | [0]]' --output text 2>&1); then
+            IFS=$'\t' read -r bucket origin <<< "$stack"
+            if [[ ! "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ || ( -n "$origin" && "$origin" != 'None' ) ]]; then
+              echo 'Versioned web origin or unexpected stack state. Use the reviewed staging release procedure.' >&2
+              exit 1
+            fi
+            count=$(aws s3api list-objects-v2 --bucket "$bucket" --prefix releases/ --max-keys 1 --no-paginate --query KeyCount --output text)
+            if [ "$count" != 0 ]; then
+              echo 'Immutable releases exist. Use the reviewed staging release procedure.' >&2
+              exit 1
+            fi
+          elif [[ "$stack" != *'(ValidationError)'* || "$stack" != *'Stack with id proofpath-staging-web does not exist'* ]]; then
+            echo 'Could not verify the staging web stack. Deployment stopped before making AWS changes.' >&2
+            exit 1
+          fi
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
       - name: Read reviewed foundation outputs
@@ -99,7 +117,7 @@ jobs:
           cd apps/web && npm ci && VITE_API_URL='' npm run build && cd ../..
           WEB_BUCKET=$(aws cloudformation describe-stacks --stack-name proofpath-staging-web --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" --output text)
           DISTRIBUTION=$(aws cloudformation describe-stacks --stack-name proofpath-staging-web --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)
-          aws s3 sync apps/web/dist "s3://$WEB_BUCKET" --delete
+          aws s3 sync apps/web/dist "s3://$WEB_BUCKET"
           aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths '/*'
       - name: Validate staging
         run: |
