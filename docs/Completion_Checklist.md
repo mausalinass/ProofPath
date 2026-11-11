@@ -136,7 +136,7 @@ Evidence: [Collage frontend implementation](Frontend_Collage_Implementation.md).
 - [ ] Test accessibility and supported screen sizes.
 - [ ] Test failure handling, alarms and operational recovery.
 - [ ] Test database backup restoration.
-- [ ] Test application rollback.
+- [ ] Test application rollback. The versioned staging frontend rollback passed on 2026-11-11. A production-like backend and RDS recovery drill remains pending.
 - [ ] Record evidence and severity for every finding.
 
 Exit criterion: all required tests pass and no unaccepted critical or high-severity finding remains.
@@ -150,6 +150,8 @@ Exit criterion: all required tests pass and no unaccepted critical or high-sever
 - [ ] Commit and push the verified release candidate.
 
 Progress 2026-11-09: the three frontend findings from staging validation section 4 were resolved. SPA navigation no longer depends on an `onClick` handler attached to a non-interactive container; the programmatically focused main content has a visible focus indicator; and internal GitHub, opportunity, tracking, requirement-review and profile controls now declare meaningful `name` and `autocomplete` behavior. Frontend lint, 13 Vitest tests, the production build and all 5 isolated Playwright journeys passed after the final change. Section 5 remains open at the project level until rollback/recovery validation is complete and any additional independent findings are resolved.
+
+Progress 2026-11-11: [`22bea18` staging validation](Final_Staging_Validation.md) records the corrected frontend, browser checks, the timed frontend rollback and the repeated synthetic database restore. The [active `main` ruleset](https://github.com/mausalinass/ProofPath/rules/27049708) requires a PR and four CI checks. The final decision remains on hold pending an authenticated staging run, recovery/rotation follow-up and owner production approvals.
 
 Exit criterion: a specific immutable commit is approved as the production release candidate.
 
