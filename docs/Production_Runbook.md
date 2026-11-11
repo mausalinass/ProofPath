@@ -86,6 +86,14 @@ Confirm the frontend and `/login` return HTTP 200, `/health/live` and `/health/r
 
 This recovery is operational rather than preventive. Until secret rotation is wired to an automatic ECS redeployment, repeat the procedure after a future RDS master-password rotation or perform a controlled service deployment immediately after rotation.
 
+### Prepared staging rotation recovery
+
+`infra/staging-rotation.yml` defines a separate staging-only stack with a disabled EventBridge rule by default. It matches the exact RDS secret ARN and the `AWSCURRENT` label, then requests a rolling refresh of only the two reviewed ECS services. The Lambda role can describe and update those services, write its own logs and acquire a short-lived lease in its own DynamoDB table. It cannot read the database secret or change the database. The lease serializes duplicate deliveries without reserved Lambda concurrency. The handler retries after an older rollout, skips services already deployed after the event, and refuses to restart a failed rollout.
+
+1. Review current AWS costs, Lambda concurrency quota, account and region. Resolve the database secret ARN and service ARNs from stack metadata. Review a change set for only the new recovery stack with `RotationRuleState=DISABLED`.
+2. Validate the exact event pattern against the native Secrets Manager event format. Confirm account, region, ARN and label exclusions. In the approved staging window, invoke the Lambda once with a clearly identified synthetic event matching the metadata. Record both ECS rollouts, health, API access and logs. Keep the manual recovery instructions available.
+3. Enable the rule only after the staging drill passes. At the next rotation, verify actual native event delivery, both successful rollouts and readiness. The rollout takes time and can leave a short readiness gap. If the rule fails, stop automatic invocations by setting `RotationRuleState=DISABLED` and use the documented manual recovery.
+
 ## Versioned staging frontend deployment and rollback
 
 Build the web client from the verified frontend commit and record the artifact hashes. Read the current `WebOriginPath` and verify the current HTML and asset hashes before staging the candidate. The `Deploy staging` workflow is for unversioned staging. Its preflight stops before deployment when the web origin is versioned, `releases/` contains objects, or verification fails unexpectedly.
@@ -130,7 +138,7 @@ The application stack creates alarms for API 5xx responses, unhealthy ALB target
 
 The readiness middleware emits only status and trace ID when `/health/ready` is not HTTP 200. A metric filter converts that event into `ProofPath/ReadinessFailures`; it never records database errors, credentials, request bodies or résumé content. After deployment, confirm all `proofpath-staging-*` alarms have at least one action and the SNS subscription is `Confirmed`. Test delivery with the SNS console's publish function only with owner approval; do not force a production alarm by stopping services.
 
-Inspect `describe-alarm-history --history-item-type Action` after a staging failure and recovery. An `OK` alarm and a confirmed subscription can coexist with failed delivery. On 2026-11-11 both actions failed because the CloudWatch service lacked access to the SNS topic's AWS-managed encryption key. Review a customer-managed KMS key with scoped CloudWatch access and an SNS policy constrained by source account and ProofPath alarm ARN. Confirm alarm-to-topic delivery before accepting the alerting control.
+Inspect `describe-alarm-history --history-item-type Action` after a staging failure and recovery. On 2026-11-11 the legacy SNS actions failed because CloudWatch lacked access to the topic's AWS-managed encryption key. Staging uses the free `proofpath-staging-cloudwatch-email` configuration in AWS User Notifications for operational email. It filters the seven staging metric alarms in Ohio and sends `ALARM` and `OK` events immediately. The owner confirmed receiving the controlled readiness test message. Verify the configuration and the verified contact before relying on staging email. Production needs a separate test with its own alarms and verified recipient.
 
 ## IAM scope and justified exceptions
 
