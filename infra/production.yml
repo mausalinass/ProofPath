@@ -111,6 +111,8 @@ Resources:
             - { Name: OpenAI__ApiKey, ValueFrom: !Sub '${ApplicationSecretArn}:OpenAIApiKey::' }
             - { Name: GitHub__AppId, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppId::' }
             - { Name: GitHub__AppSlug, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubAppSlug::' }
+            - { Name: GitHub__ClientId, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubClientId::' }
+            - { Name: GitHub__ClientSecret, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubClientSecret::' }
             - { Name: GitHub__PrivateKeyPem, ValueFrom: !Sub '${ApplicationSecretArn}:GitHubPrivateKeyPem::' }
           LogConfiguration: { LogDriver: awslogs, Options: { awslogs-group: !Ref ApiLogs, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: api } }
   WorkerTask:

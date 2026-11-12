@@ -117,7 +117,7 @@ public sealed class MatchingWorkspace(ProofPathDbContext database) : IMatchingWo
                                          join resume in database.Resumes.AsNoTracking() on extraction.ResumeId equals resume.Id
                                          where resume.CandidateProfileId == profileId && extraction.Active && extraction.ConfirmedAt != null
                                          select extraction.Id).ToArrayAsync(ct);
-        var evidence = await database.EvidenceItems.AsNoTracking().Where(item => item.CandidateProfileId == profileId &&
+        var evidence = await database.EvidenceItems.AsNoTracking().Where(item => item.CandidateProfileId == profileId && item.Lifecycle != "Quarantined" &&
             (item.ResumeExtractionId == null || activeExtractionIds.Contains(item.ResumeExtractionId.Value))).OrderBy(item => item.Id).ToArrayAsync(ct);
         var experiences = await database.Experiences.AsNoTracking().Where(item => item.CandidateProfileId == profileId &&
             item.ResumeExtractionId != null && activeExtractionIds.Contains(item.ResumeExtractionId.Value)).OrderBy(item => item.Id).ToArrayAsync(ct);

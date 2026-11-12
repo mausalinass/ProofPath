@@ -112,6 +112,43 @@ public sealed class AnalysisQueueTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RepositoryRetryCannotBypassProviderCooldown()
+    {
+        var owner = await Owner();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<ProofPathDbContext>();
+        var profile = await database.CandidateProfiles.SingleAsync(item => item.UserId == owner);
+        var account = new ConnectedAccount { Id = Guid.NewGuid(), CandidateProfileId = profile.Id, ExternalAccountId = 418622 };
+        var repository = new Repository
+        {
+            Id = Guid.NewGuid(), CandidateProfileId = profile.Id, ConnectedAccountId = account.Id,
+            GitHubId = 418622, IncludedForAnalysis = true
+        };
+        database.ConnectedAccounts.Add(account);
+        database.Repositories.Add(repository);
+        await database.SaveChangesAsync();
+        var queue = Queue(scope.ServiceProvider);
+        var id = await queue.EnqueueAsync(owner, AnalysisKind.Repository, repository.Id, "cooldown", default);
+        var retryAt = DateTimeOffset.UtcNow.AddMinutes(10);
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var lease = (await queue.ClaimAsync(default))!;
+            Assert.Equal(id, lease.Id);
+            Assert.True(await queue.FailAsync(lease, "GITHUB_RATE_LIMITED", true, default, retryAt));
+            Assert.Null(await queue.ClaimAsync(default));
+            if (attempt < 3)
+                await database.AnalysisJobs.Where(job => job.Id == id)
+                    .ExecuteUpdateAsync(set => set.SetProperty(job => job.AvailableAt, DateTime.UtcNow.AddSeconds(-1)));
+        }
+        Assert.Equal(id, await queue.EnqueueAsync(owner, AnalysisKind.Repository, repository.Id, "cooldown", default));
+        Assert.Equal(AnalysisState.Failed, (await queue.GetAsync(owner, id, default))!.State);
+        Assert.True(await queue.RetryAsync(owner, id, default));
+        Assert.Null(await queue.ClaimAsync(default));
+        var availableAt = await database.AnalysisJobs.Where(job => job.Id == id).Select(job => job.AvailableAt).SingleAsync();
+        Assert.True((availableAt - retryAt.UtcDateTime).Duration() < TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
     public async Task AccountDeletionPreventsWorkerFromRepopulatingJobs()
     {
         var owner = await Owner(); await Enqueue(owner);

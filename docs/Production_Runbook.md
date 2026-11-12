@@ -116,7 +116,9 @@ The staging GitHub App callback is:
 https://d27i0fde08ymkz.cloudfront.net/api/v1/github/callback
 ```
 
-GitHub App setup redirects use `installation_id`, `setup_action` (`install` or `update`) and the signed ProofPath `state`. ProofPath verifies the installation and its read-only Contents/Metadata permissions with a short-lived App JWT; it does not require an OAuth `code`. A callback state is single-use and replay must fail.
+GitHub App setup redirects use `installation_id`, `setup_action` (`install` or `update`) and a single-use ProofPath `state`. The OAuth authorization with PKCE verifies that the signed-in candidate controls the personal installation and that its Contents and Metadata permissions are read-only. Configure both the Setup URL and the OAuth callback as described in [GitHub setup](GitHub_Setup.md). Connections created before ownership verification require reconnection. The migration retains older evidence in quarantine until authorization can be verified again.
+
+For a failed repository analysis, record the job ID and search the Worker logs for that ID. Use the logged operation, status, GitHub request ID, rate-limit reset and error code to diagnose the failure. Keep tokens, provider response bodies, and repository content out of incident notes. The Worker retries transient failures up to three attempts and respects GitHub's wait time, including when an operator retries a job. Confirm with two synthetic accounts that each can analyze its own private repository and that an attempt to attach the other account's installation returns HTTP 403.
 
 Private résumé operations verify the bucket's public-access block before reading or writing objects. The ECS task role therefore needs `s3:GetBucketPublicAccessBlock` on the résumé bucket in addition to its object permissions and `s3:ListBucket`. If upload logs show that exact denied action, restore the bucket-scoped permission from `infra/foundation.yml`; do not disable the runtime privacy check or grant `s3:*`.
 

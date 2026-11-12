@@ -23,7 +23,12 @@ public sealed class PostgresAnalysisQueue(ProofPathDbContext database, IEnumerab
             INSERT INTO "AnalysisJobs" ("Id", "CandidateProfileId", "Kind", "ResourceId", "InputVersion", "State",
                 "Attempts", "AvailableAt", "CreatedAt", "UpdatedAt", "Retryable")
             VALUES ({id}, {profileId}, {kindName}, {resourceId}, {inputVersion}, 'Pending', 0, {now}, {now}, {now}, false)
-            ON CONFLICT ("CandidateProfileId", "Kind", "ResourceId", "InputVersion") DO NOTHING
+            ON CONFLICT ("CandidateProfileId", "Kind", "ResourceId", "InputVersion") DO UPDATE
+            SET "State" = 'Pending', "Attempts" = 0, "AvailableAt" = {now}, "UpdatedAt" = {now},
+                "ErrorCode" = NULL, "Retryable" = false
+            WHERE "AnalysisJobs"."Kind" = 'Repository' AND (
+                "AnalysisJobs"."State" = 'Cancelled' OR
+                ("AnalysisJobs"."State" = 'Failed' AND "AnalysisJobs"."AvailableAt" <= {now}))
             """, ct);
         return await database.AnalysisJobs.Where(job => job.CandidateProfileId == profileId && job.Kind == kind &&
             job.ResourceId == resourceId && job.InputVersion == inputVersion).Select(job => job.Id).SingleAsync(ct);
@@ -68,7 +73,7 @@ public sealed class PostgresAnalysisQueue(ProofPathDbContext database, IEnumerab
         await transaction.CommitAsync(ct); return true;
     }
 
-    public async Task<bool> FailAsync(AnalysisLease lease, string errorCode, bool retryable, CancellationToken ct)
+    public async Task<bool> FailAsync(AnalysisLease lease, string errorCode, bool retryable, CancellationToken ct, DateTimeOffset? retryNotBefore = null)
     {
         // Error codes are operational constants, never exception messages or provider response bodies.
         if (string.IsNullOrWhiteSpace(errorCode) || errorCode.Length > 64 ||
@@ -76,11 +81,29 @@ public sealed class PostgresAnalysisQueue(ProofPathDbContext database, IEnumerab
             throw new ArgumentException("Use a sanitized error code.");
         var now = DateTime.UtcNow;
         var state = retryable && lease.Attempt < MaxAttempts ? AnalysisState.Pending : AnalysisState.Failed;
-        var next = now.AddSeconds(15 * Math.Pow(2, lease.Attempt - 1));
-        return await Current(lease, now).ExecuteUpdateAsync(set => set.SetProperty(job => job.State, state)
+        var next = retryable
+            ? now.AddSeconds(15 * Math.Pow(2, lease.Attempt - 1) + Random.Shared.NextDouble() * 5)
+            : now;
+        if (retryNotBefore is { } providerTime && providerTime.UtcDateTime > next)
+            next = providerTime.UtcDateTime;
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        var saved = await Current(lease, now).ExecuteUpdateAsync(set => set.SetProperty(job => job.State, state)
             .SetProperty(job => job.ErrorCode, errorCode).SetProperty(job => job.Retryable, retryable)
             .SetProperty(job => job.AvailableAt, next).SetProperty(job => job.UpdatedAt, now)
             .SetProperty(job => job.LeaseToken, (Guid?)null).SetProperty(job => job.LeaseExpiresAt, (DateTime?)null), ct) == 1;
+        if (!saved) return false;
+        if (lease.Kind == AnalysisKind.Repository)
+        {
+            var repositoryStatus = errorCode == "GITHUB_ACCESS_LOST" ? RepositoryScanStatus.AccessLost
+                : state == AnalysisState.Pending ? RepositoryScanStatus.Pending
+                : retryable ? RepositoryScanStatus.FailedRetryable : RepositoryScanStatus.FailedPermanent;
+            await database.Repositories.Where(repository => repository.Id == lease.ResourceId &&
+                repository.CandidateProfileId == lease.CandidateProfileId && repository.IncludedForAnalysis &&
+                repository.ScanStatus != RepositoryScanStatus.AccessLost)
+                .ExecuteUpdateAsync(set => set.SetProperty(repository => repository.ScanStatus, repositoryStatus), ct);
+        }
+        await transaction.CommitAsync(ct);
+        return true;
     }
 
     public Task<bool> IsCurrentAsync(AnalysisLease lease, CancellationToken ct) => Current(lease, DateTime.UtcNow).AnyAsync(ct);
@@ -107,9 +130,14 @@ public sealed class PostgresAnalysisQueue(ProofPathDbContext database, IEnumerab
     {
         var now = DateTime.UtcNow;
         return await database.AnalysisJobs.Where(job => database.CandidateProfiles.Any(profile => profile.Id == job.CandidateProfileId && profile.UserId == userId) && job.Id == id &&
-            job.State == AnalysisState.Failed && job.Retryable).ExecuteUpdateAsync(set =>
+            job.State == AnalysisState.Failed && job.Retryable &&
+            (job.Kind != AnalysisKind.Repository || database.Repositories.Any(repository =>
+                repository.Id == job.ResourceId && repository.CandidateProfileId == job.CandidateProfileId &&
+                repository.IncludedForAnalysis && repository.ScanStatus != RepositoryScanStatus.AccessLost))).ExecuteUpdateAsync(set =>
                 set.SetProperty(job => job.State, AnalysisState.Pending).SetProperty(job => job.Attempts, 0)
-                .SetProperty(job => job.AvailableAt, now).SetProperty(job => job.UpdatedAt, now)
+                .SetProperty(job => job.AvailableAt, job => job.Kind == AnalysisKind.Repository &&
+                    job.AvailableAt > now ? job.AvailableAt : now)
+                .SetProperty(job => job.UpdatedAt, now)
                 .SetProperty(job => job.ErrorCode, (string?)null).SetProperty(job => job.Retryable, false), ct) == 1;
     }
 }

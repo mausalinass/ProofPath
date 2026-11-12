@@ -14,7 +14,7 @@ public interface IAnalysisQueue
     Task<AnalysisLease?> ClaimAsync(CancellationToken ct);
     Task<bool> IsCurrentAsync(AnalysisLease lease, CancellationToken ct);
     Task<bool> CompleteAsync(AnalysisLease lease, AnalysisOutput output, CancellationToken ct);
-    Task<bool> FailAsync(AnalysisLease lease, string errorCode, bool retryable, CancellationToken ct);
+    Task<bool> FailAsync(AnalysisLease lease, string errorCode, bool retryable, CancellationToken ct, DateTimeOffset? retryNotBefore = null);
     Task<AnalysisStatus?> GetAsync(string userId, Guid id, CancellationToken ct);
     Task<bool> CancelAsync(string userId, Guid id, CancellationToken ct);
     Task<bool> RetryAsync(string userId, Guid id, CancellationToken ct);
@@ -33,8 +33,9 @@ public interface IAnalysisHandler
     Task<AnalysisOutput> ProcessAsync(AnalysisLease lease, CancellationToken ct);
 }
 
-public sealed class AnalysisFailure(string code, bool retryable) : Exception(code)
+public sealed class AnalysisFailure(string code, bool retryable, DateTimeOffset? retryNotBefore = null) : Exception(code)
 {
     public string Code { get; } = code;
     public bool Retryable { get; } = retryable;
+    public DateTimeOffset? RetryNotBefore { get; } = retryNotBefore;
 }

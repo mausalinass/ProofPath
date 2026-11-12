@@ -400,6 +400,9 @@ namespace ProofPath.Infrastructure.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<DateTime?>("OwnershipVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -419,7 +422,8 @@ namespace ProofPath.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("Provider", "ExternalAccountId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"OwnershipVerifiedAt\" IS NOT NULL");
 
                     b.ToTable("ConnectedAccounts");
                 });
@@ -603,8 +607,7 @@ namespace ProofPath.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConnectedAccountId")
                         .IsUnique();
 
-                    b.HasIndex("InstallationId")
-                        .IsUnique();
+                    b.HasIndex("InstallationId");
 
                     b.ToTable("GitHubInstallations");
                 });

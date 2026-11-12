@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using ProofPath.Application.Analysis;
 using ProofPath.Application.GitHub;
 
 namespace ProofPath.Api.Endpoints;
@@ -13,16 +14,36 @@ public static class GitHubEndpoints
         {
             try { return await next(context); }
             catch (GitHubProblem problem) { return Results.Problem(Message(problem.Code), statusCode: problem.Status, extensions: new Dictionary<string, object?> { ["code"] = problem.Code }); }
+            catch (AnalysisFailure failure)
+            {
+                if (failure.RetryNotBefore is { } retryAt)
+                    context.HttpContext.Response.Headers.RetryAfter = retryAt.ToString("R");
+                var status = failure.Code switch
+                {
+                    "GITHUB_RATE_LIMITED" => 429,
+                    "GITHUB_ACCESS_LOST" or "GITHUB_PERMISSIONS_INVALID" or "GITHUB_REPOSITORY_NOT_GRANTED" => 403,
+                    "GITHUB_APP_CREDENTIALS" => 503,
+                    _ => 502
+                };
+                return Results.Problem(Message(failure.Code), statusCode: status,
+                    extensions: new Dictionary<string, object?> { ["code"] = failure.Code });
+            }
         });
         group.MapGet("/status", (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) => workspace.StatusAsync(UserId(user), ct));
         group.MapPost("/connect", async (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
             Results.Ok(new { url = (await workspace.BeginConnectionAsync(UserId(user), ct)).ToString() }));
-        group.MapGet("/callback", async (string state, long installation_id, string setup_action,
-            IGitHubWorkspace workspace, IConfiguration configuration, CancellationToken ct) =>
+        group.MapGet("/callback", async (string? state, string? code, long? installation_id, string? setup_action, string? error,
+            ClaimsPrincipal user, IGitHubWorkspace workspace, IConfiguration configuration, CancellationToken ct) =>
         {
-            await workspace.CompleteConnectionAsync(state, installation_id, setup_action, ct);
+            if (error is not null) throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+            if (string.IsNullOrWhiteSpace(state)) throw new GitHubProblem("GITHUB_STATE_INVALID");
+            if (code is null && installation_id is long installationId && setup_action is not null)
+                return Results.Redirect((await workspace.AuthorizeInstallationAsync(UserId(user), state, installationId, setup_action, ct)).ToString());
+            if (code is null || setup_action is not null) throw new GitHubProblem("GITHUB_STATE_INVALID");
+            var next = await workspace.CompleteConnectionAsync(UserId(user), state, code, installation_id, ct);
+            if (next is not null) return Results.Redirect(next.ToString());
             return Results.Redirect(configuration["Frontend:GitHubReturnUrl"] ?? "http://localhost:5173/onboarding/github?github=connected");
-        }).AllowAnonymous();
+        });
         group.MapPost("/disconnect", async (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
         { await workspace.DisconnectAsync(UserId(user), ct); return Results.NoContent(); });
         group.MapGet("/repositories", (bool? sync, ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
@@ -38,7 +59,13 @@ public static class GitHubEndpoints
     private static string Message(string code) => code switch
     {
         "GITHUB_NOT_CONFIGURED" => "GitHub App credentials are not configured for this environment.",
+        "GITHUB_APP_CREDENTIALS" => "The GitHub App is not configured correctly. Contact support.",
+        "GITHUB_RATE_LIMITED" => "GitHub is limiting requests. Wait before trying again.",
+        "GITHUB_ACCESS_LOST" or "GITHUB_REPOSITORY_NOT_GRANTED" => "Review the repositories granted to the GitHub App, then refresh or reconnect.",
         "GITHUB_STATE_INVALID" or "GITHUB_STATE_REPLAYED" => "This GitHub connection request expired or was already used. Start again.",
+        "GITHUB_INSTALLATION_NOT_AUTHORIZED" => "Authorize your personal GitHub App installation to continue.",
+        "GITHUB_INSTALLATION_ALREADY_LINKED" => "This GitHub account is already linked or must be disconnected before switching accounts.",
+        "GITHUB_AUTHORIZATION_UNAVAILABLE" => "GitHub could not verify your authorization. Start again in a moment.",
         "GITHUB_PERMISSIONS_INVALID" => "The GitHub App must have read-only Contents and Metadata permissions.",
         "REPOSITORY_LIMIT_EXCEEDED" => "Select no more than five repositories.",
         "REPOSITORY_NOT_AUTHORIZED" => "One or more repositories are outside the GitHub installation.",
