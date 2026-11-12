@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using ProofPath.Application.Analysis;
 using ProofPath.Application.GitHub;
@@ -191,10 +192,18 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
         var jobs = new List<Guid>();
         foreach (var repository in repositories)
         {
-            var id = await queue.EnqueueAsync(userId, AnalysisKind.Repository, repository.Id, "github-onboarding-v1", ct);
-            repository.ScanStatus = RepositoryScanStatus.Pending; jobs.Add(id);
+            var latest = await database.AnalysisJobs.AsNoTracking()
+                .Where(job => job.CandidateProfileId == repository.CandidateProfileId &&
+                    job.ResourceId == repository.Id && job.Kind == AnalysisKind.Repository)
+                .OrderByDescending(job => job.CreatedAt).ThenByDescending(job => job.Id)
+                .Select(job => new { job.Id, job.State, job.InputVersion }).FirstOrDefaultAsync(ct);
+            var inputVersion = latest?.State is AnalysisState.Completed or AnalysisState.PartiallyCompleted
+                ? $"github-scan-after:{latest.Id:N}"
+                : latest?.InputVersion ?? "github-onboarding-v1";
+            var id = await queue.EnqueueAsync(userId, AnalysisKind.Repository, repository.Id, inputVersion, ct);
+            jobs.Add(id);
         }
-        await database.SaveChangesAsync(ct); return jobs;
+        return jobs;
     }
 
     public async Task<IReadOnlyList<GitHubEvidenceView>> EvidenceAsync(string userId, CancellationToken ct) =>
@@ -272,14 +281,7 @@ public sealed class RepositoryAnalysisHandler(ProofPathDbContext database, IGitH
                            where repository.Id == lease.ResourceId && repository.CandidateProfileId == lease.CandidateProfileId &&
                                repository.IncludedForAnalysis && account.Status == ConnectedAccountStatus.Active && account.OwnershipVerifiedAt != null
                            select new { repository, installation.InstallationId }).SingleOrDefaultAsync(ct) ?? throw new AnalysisFailure("GITHUB_ACCESS_LOST", false);
-        await database.Repositories.Where(item => item.Id == lease.ResourceId).ExecuteUpdateAsync(set => set.SetProperty(item => item.ScanStatus, RepositoryScanStatus.Processing), ct);
-        GitHubRepositorySnapshot snapshot;
-        try { snapshot = await provider.ReadSnapshotAsync(input.InstallationId, input.repository.GitHubId, ct); }
-        catch (AnalysisFailure failure)
-        {
-            var status = failure.Code == "GITHUB_ACCESS_LOST" ? RepositoryScanStatus.AccessLost : RepositoryScanStatus.FailedRetryable;
-            await database.Repositories.Where(item => item.Id == lease.ResourceId).ExecuteUpdateAsync(set => set.SetProperty(item => item.ScanStatus, status), ct); throw;
-        }
+        var snapshot = await provider.ReadSnapshotAsync(input.InstallationId, input.repository.GitHubId, ct);
         var identity = $"{input.repository.Id}:{snapshot.RevisionSha}:{DeterministicRepositoryAnalyzer.ExtractionVersion}:{DeterministicRepositoryAnalyzer.PolicyVersion}";
         var prior = await database.RepositoryAnalyses.AsNoTracking().Where(item => item.ScanIdentity == identity).Select(item => item.ResultJson).SingleOrDefaultAsync(ct);
         var json = prior ?? JsonSerializer.Serialize(analyzer.Analyze(snapshot));
@@ -298,7 +300,23 @@ public sealed class RepositoryAnalysisCompletion(ProofPathDbContext database) : 
                 account.Status == ConnectedAccountStatus.Active && account.OwnershipVerifiedAt != null), ct);
         if (repository is null) return;
         var identity = $"{repository.Id}:{result.RevisionSha}:{result.ExtractionVersion}:{result.AnalysisPolicyVersion}";
-        if (await database.RepositoryAnalyses.AnyAsync(item => item.ScanIdentity == identity, ct)) return;
+        var existing = await database.RepositoryAnalyses.AsNoTracking().SingleOrDefaultAsync(item => item.ScanIdentity == identity, ct);
+        await database.EvidenceItems.Where(item => item.CandidateProfileId == lease.CandidateProfileId &&
+            item.Lifecycle == "Active" && item.RepositoryAnalysisId != (existing == null ? (Guid?)null : existing.Id) &&
+            database.RepositoryAnalyses.Any(analysis => analysis.Id == item.RepositoryAnalysisId && analysis.RepositoryId == repository.Id))
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Stale"), ct);
+        if (existing is not null)
+        {
+            await database.EvidenceItems.Where(item => item.CandidateProfileId == lease.CandidateProfileId &&
+                item.RepositoryAnalysisId == existing.Id && (item.Lifecycle == "Stale" || item.Lifecycle == "Inactive"))
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Active"), ct);
+            repository.ScanStatus = existing.Status;
+            repository.LastRevisionSha = existing.RevisionSha;
+            repository.LastScanAt = DateTime.UtcNow;
+            repository.CoverageJson = existing.CoverageJson;
+            await database.SaveChangesAsync(ct);
+            return;
+        }
         var analysis = new RepositoryAnalysis
         {
             Id = Guid.NewGuid(),
@@ -352,8 +370,9 @@ public static class GitHubRegistration
     public static IServiceCollection AddGitHubModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddDataProtection();
-        services.AddSingleton<IGitHubProvider>(_ => new GitHubAppProvider(
-            new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(60) }, configuration));
+        services.AddSingleton<IGitHubProvider>(provider => new GitHubAppProvider(
+            new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(60) },
+            configuration, provider.GetRequiredService<ILogger<GitHubAppProvider>>()));
         services.AddSingleton<DeterministicRepositoryAnalyzer>(); services.AddScoped<IGitHubWorkspace, GitHubWorkspace>();
         services.AddScoped<IAnalysisHandler, RepositoryAnalysisHandler>(); services.AddScoped<IAnalysisCompletion, RepositoryAnalysisCompletion>(); return services;
     }

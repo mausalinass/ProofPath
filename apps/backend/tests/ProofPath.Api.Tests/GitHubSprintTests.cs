@@ -205,6 +205,54 @@ public sealed class GitHubProviderContractTests
         Assert.Contains("FILE_COUNT_LIMIT_REACHED", snapshot.Warnings);
     }
 
+    [Theory]
+    [InlineData(401, "", "GITHUB_APP_CREDENTIALS", false)]
+    [InlineData(403, "", "GITHUB_PERMISSIONS_INVALID", false)]
+    [InlineData(403, "You have exceeded a secondary rate limit.", "GITHUB_RATE_LIMITED", true)]
+    [InlineData(404, "", "GITHUB_ACCESS_LOST", false)]
+    [InlineData(422, "", "GITHUB_REPOSITORY_NOT_GRANTED", false)]
+    [InlineData(503, "", "GITHUB_UNAVAILABLE", true)]
+    public async Task InstallationTokenFailuresAreClassified(int status, string message, string code, bool retryable)
+    {
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Json((HttpStatusCode)status, new { message }))));
+        var provider = new GitHubAppProvider(http, Configuration());
+        var error = await Assert.ThrowsAsync<AnalysisFailure>(() => provider.CreateInstallationAccessAsync(9, [7], default));
+        Assert.Equal(code, error.Code);
+        Assert.Equal(retryable, error.Retryable);
+    }
+
+    [Theory]
+    [InlineData(409, "Git Repository is empty.", "GITHUB_REPOSITORY_EMPTY")]
+    [InlineData(409, "Conflict", "GITHUB_REPOSITORY_CONFLICT")]
+    [InlineData(404, "Not found", "GITHUB_BRANCH_MISSING")]
+    public async Task DefaultBranchFailuresDoNotRetry(int status, string message, string code)
+    {
+        using var http = new HttpClient(new Handler(request => Task.FromResult(request.Method == HttpMethod.Post ? Token()
+            : request.RequestUri!.AbsolutePath == "/repositories/7" ? Json(HttpStatusCode.OK, Repository(7))
+            : Json((HttpStatusCode)status, new { message }))));
+        var error = await Assert.ThrowsAsync<AnalysisFailure>(() => new GitHubAppProvider(http, Configuration()).ReadSnapshotAsync(9, 7, default));
+        Assert.Equal(code, error.Code);
+        Assert.False(error.Retryable);
+    }
+
+    [Fact]
+    public async Task InstallationRateLimitHonorsTheLaterOfRetryAfterAndReset()
+    {
+        var reset = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds();
+        using var http = new HttpClient(new Handler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.Forbidden);
+            response.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", "0");
+            response.Headers.TryAddWithoutValidation("X-RateLimit-Reset", reset.ToString());
+            response.Headers.RetryAfter = new(TimeSpan.FromSeconds(60));
+            return Task.FromResult(response);
+        }));
+        var provider = new GitHubAppProvider(http, Configuration());
+        var error = await Assert.ThrowsAsync<AnalysisFailure>(() => provider.CreateInstallationAccessAsync(9, [7], default));
+        Assert.Equal("GITHUB_RATE_LIMITED", error.Code);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(reset), error.RetryNotBefore);
+    }
+
     [Fact]
     public async Task RevokingAnAlreadyRemovedInstallationIsIdempotent()
     {
@@ -253,6 +301,26 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
             var handler = scope.ServiceProvider.GetServices<IAnalysisHandler>().Single(item => item.Kind == lease.Kind); var output = await handler.ProcessAsync(lease, default); Assert.True(await queue.CompleteAsync(lease, output, default));
         }
         var evidence = await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"); Assert.NotEmpty(evidence!); Assert.All(evidence!, item => Assert.Equal("Active", item.Lifecycle));
+        using (var rescan = await Write(client, HttpMethod.Post, "/api/v1/github/scans", new { }))
+        {
+            var ids = (await rescan.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("analysisJobIds")
+                .EnumerateArray().Select(item => item.GetGuid()).ToArray();
+            Assert.Empty(ids.Intersect(jobs));
+            using var repeated = await Write(client, HttpMethod.Post, "/api/v1/github/scans", new { });
+            Assert.Equal(ids, (await repeated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("analysisJobIds")
+                .EnumerateArray().Select(item => item.GetGuid()).ToArray());
+            foreach (var id in ids)
+            {
+                using var scope = fixture.Factory.Services.CreateScope();
+                var queue = scope.ServiceProvider.GetRequiredService<IAnalysisQueue>();
+                var lease = await queue.ClaimAsync(default);
+                Assert.Equal(id, lease!.Id);
+                var handler = scope.ServiceProvider.GetServices<IAnalysisHandler>().Single(item => item.Kind == lease.Kind);
+                Assert.True(await queue.CompleteAsync(lease, await handler.ProcessAsync(lease, default), default));
+            }
+            var rescanned = (await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"))!;
+            Assert.Equal(evidence!.Select(item => item.Id).Order(), rescanned.Select(item => item.Id).Order());
+        }
         using var other = await User(); Assert.Empty((await other.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"))!);
         Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Post, "/api/v1/github/disconnect", new { })).StatusCode);
         evidence = await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"); Assert.All(evidence!, item => Assert.Equal("Stale", item.Lifecycle));

@@ -23,6 +23,7 @@ public sealed class Worker(IServiceScopeFactory scopes, ILogger<Worker> logger) 
                     continue;
                 }
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                using var logScope = logger.BeginScope("AnalysisJob={JobId} Attempt={Attempt}", lease.Id, lease.Attempt);
                 timeout.CancelAfter(TimeSpan.FromMinutes(4));
                 var monitor = MonitorLeaseAsync(lease, timeout);
                 try
@@ -33,7 +34,9 @@ public sealed class Worker(IServiceScopeFactory scopes, ILogger<Worker> logger) 
                 }
                 catch (AnalysisFailure failure)
                 {
-                    await queue.FailAsync(lease, failure.Code, failure.Retryable, stoppingToken);
+                    if (lease.Kind == ProofPath.Domain.Entities.AnalysisKind.Repository)
+                        logger.LogWarning("Repository analysis failed: code={Code} retryable={Retryable}", failure.Code, failure.Retryable);
+                    await queue.FailAsync(lease, failure.Code, failure.Retryable, stoppingToken, failure.RetryNotBefore);
                 }
                 catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
                 {
