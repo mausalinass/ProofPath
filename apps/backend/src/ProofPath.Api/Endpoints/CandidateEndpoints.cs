@@ -38,7 +38,8 @@ public static class CandidateEndpoints
                 nextAction = string.IsNullOrWhiteSpace(profile?.FirstName) ? "complete_profile" : "profile_ready",
                 resumeAvailable = profile is not null && await database.Resumes.AnyAsync(resume => resume.CandidateProfileId == profile.Id, ct),
                 githubAvailable = profile is not null && await database.ConnectedAccounts.AnyAsync(
-                    account => account.CandidateProfileId == profile.Id && account.Status == ConnectedAccountStatus.Active, ct)
+                    account => account.CandidateProfileId == profile.Id && account.Status == ConnectedAccountStatus.Active &&
+                        account.OwnershipVerifiedAt != null, ct)
             });
         });
         group.MapDelete("/account", async ([FromBody] DeleteAccountRequest request, ClaimsPrincipal principal,
@@ -55,7 +56,8 @@ public static class CandidateEndpoints
             var profileIds = profiles.Select(profile => profile.Id).ToArray();
             var installationIds = await (from account in database.ConnectedAccounts
                                          join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
-                                         where profileIds.Contains(account.CandidateProfileId)
+                                         where profileIds.Contains(account.CandidateProfileId) &&
+                                             account.Status == ConnectedAccountStatus.Active && account.OwnershipVerifiedAt != null
                                          select installation.InstallationId).Distinct().ToArrayAsync(ct);
             foreach (var installationId in installationIds) await github.RevokeInstallationAsync(installationId, ct);
             var keys = await database.Resumes.Where(resume => profileIds.Contains(resume.CandidateProfileId)).Select(resume => resume.StorageKey).ToArrayAsync();

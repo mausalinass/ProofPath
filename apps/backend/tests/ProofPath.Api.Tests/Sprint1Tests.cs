@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
+using Npgsql;
 using System.Text;
 using ProofPath.Application.GitHub;
 using ProofPath.Application.Candidates;
@@ -23,20 +24,32 @@ public sealed class ApiCollection : ICollectionFixture<ApiFixture> { }
 
 public sealed class ApiFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("postgres:18-alpine")
-        .WithDatabase("proofpath_tests").WithUsername("proofpath_tests").WithPassword("isolated-fixture-only").Build();
+    private PostgreSqlContainer? container;
     public string StorageRoot { get; } = Path.Combine(Path.GetTempPath(), "proofpath-api-tests", Guid.NewGuid().ToString("N"));
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
     public async Task InitializeAsync()
     {
-        await container.StartAsync();
+        var connection = Environment.GetEnvironmentVariable("PROOFPATH_TEST_POSTGRES");
+        if (connection is null)
+        {
+            container = new PostgreSqlBuilder("postgres:18-alpine").WithDatabase("proofpath_tests")
+                .WithUsername("proofpath_tests").WithPassword("isolated-fixture-only").Build();
+            await container.StartAsync();
+            connection = container.GetConnectionString();
+        }
+        else
+        {
+            var settings = new NpgsqlConnectionStringBuilder(connection);
+            if (settings.Host != "127.0.0.1" || settings.Database != "proofpath_tests" || settings.Username != "proofpath_tests")
+                throw new InvalidOperationException("The external test fixture must use a disposable PostgreSQL sidecar on loopback.");
+        }
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:DefaultConnection"] = container.GetConnectionString(),
+                    ["ConnectionStrings:DefaultConnection"] = connection,
                     ["Storage:PrivateRoot"] = StorageRoot,
                     ["OpenAI:ApiKey"] = "",
                     ["Security:AuthRequestsPerMinute"] = "10000",
@@ -55,7 +68,8 @@ public sealed class ApiFixture : IAsyncLifetime
     { BaseAddress = new Uri("http://localhost"), AllowAutoRedirect = false });
     public async Task DisposeAsync()
     {
-        await Factory.DisposeAsync(); await container.DisposeAsync();
+        await Factory.DisposeAsync();
+        if (container is not null) await container.DisposeAsync();
         var parent = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "proofpath-api-tests")) + Path.DirectorySeparatorChar;
         if (!Path.GetFullPath(StorageRoot).StartsWith(parent, StringComparison.OrdinalIgnoreCase) || !Guid.TryParseExact(Path.GetFileName(StorageRoot), "N", out _)) throw new InvalidOperationException("Unexpected test storage path.");
         if (Directory.Exists(StorageRoot)) Directory.Delete(StorageRoot, recursive: true);

@@ -15,7 +15,19 @@ public sealed class GitHubAppProvider(HttpClient http, IConfiguration configurat
 {
     private const int MaxTreeEntries = 5000, MaxFiles = 150, MaxFileBytes = 512 * 1024, MaxTotalBytes = 10 * 1024 * 1024;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private string Setting(string key) => configuration[$"GitHub:{key}"] ?? throw new GitHubProblem("GITHUB_NOT_CONFIGURED", 503);
+    private string Setting(string key) => configuration[$"GitHub:{key}"] is { Length: > 0 } value
+        && !string.IsNullOrWhiteSpace(value) && value != "REPLACE"
+        ? value : throw new GitHubProblem("GITHUB_NOT_CONFIGURED", 503);
+
+    private string CallbackUri()
+    {
+        var value = configuration["GitHub:CallbackUrl"]
+            ?? (configuration["Frontend:PublicUrl"] ?? "http://127.0.0.1:5173").TrimEnd('/') + "/api/v1/github/callback";
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != "https" && !(uri.IsLoopback && uri.Scheme == "http")) ||
+            uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
+            throw new GitHubProblem("GITHUB_NOT_CONFIGURED", 503);
+        return uri.AbsoluteUri;
+    }
     private string PrivateKey()
     {
         var direct = configuration["GitHub:PrivateKeyPem"];
@@ -25,15 +37,76 @@ public sealed class GitHubAppProvider(HttpClient http, IConfiguration configurat
         return File.ReadAllText(path);
     }
     public Uri BuildInstallationUri(string state) => new($"https://github.com/apps/{Uri.EscapeDataString(Setting("AppSlug"))}/installations/new?state={Uri.EscapeDataString(state)}");
-    public async Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, CancellationToken ct)
+
+    public Uri BuildAuthorizationUri(string state, string challenge)
     {
-        // ProofPath acts only as the installed App. Verify the returned installation with the App JWT;
-        // no user access token is retained or needed for read-only repository evidence.
-        using var installationResponse = await http.SendAsync(Request(HttpMethod.Get, $"https://api.github.com/app/installations/{installationId}", AppJwt()), ct);
-        if (!installationResponse.IsSuccessStatusCode) throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
-        var installation = await Read<InstallationDto>(installationResponse, ct);
-        return new(installation.Account.Id, installation.Account.Login, installation.Id, installation.Account.Id, installation.Account.Login,
-            installation.TargetType ?? "User", installation.RepositorySelection ?? "selected", installation.Permissions ?? new());
+        _ = Setting("ClientSecret");
+        return new Uri("https://github.com/login/oauth/authorize" +
+            $"?client_id={Uri.EscapeDataString(Setting("ClientId"))}&redirect_uri={Uri.EscapeDataString(CallbackUri())}" +
+            $"&state={Uri.EscapeDataString(state)}&code_challenge={Uri.EscapeDataString(challenge)}&code_challenge_method=S256");
+    }
+
+    public async Task<VerifiedGitHubInstallation?> VerifyInstallationAsync(string code, string verifier, long? installationId, CancellationToken ct)
+    {
+        using var exchange = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/oauth/access_token")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = Setting("ClientId"),
+                ["client_secret"] = Setting("ClientSecret"),
+                ["code"] = code,
+                ["redirect_uri"] = CallbackUri(),
+                ["code_verifier"] = verifier
+            })
+        };
+        exchange.Headers.Accept.Add(new("application/json"));
+        using var exchanged = await http.SendAsync(exchange, ct);
+        var token = await ReadAuthorizationResponse<UserTokenDto>(exchanged, ct);
+        if (string.IsNullOrWhiteSpace(token.AccessToken) || !string.Equals(token.TokenType, "bearer", StringComparison.OrdinalIgnoreCase))
+            throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+
+        using var userRequest = Request(HttpMethod.Get, "https://api.github.com/user", token.AccessToken);
+        using var userResponse = await http.SendAsync(userRequest, ct);
+        var user = await ReadAuthorizationResponse<AccountDto>(userResponse, ct);
+        if (user.Id <= 0 || string.IsNullOrWhiteSpace(user.Login))
+            throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+
+        for (var page = 1; page <= 10; page++)
+        {
+            using var listRequest = Request(HttpMethod.Get, $"https://api.github.com/user/installations?per_page=100&page={page}", token.AccessToken);
+            using var listResponse = await http.SendAsync(listRequest, ct);
+            var list = await ReadAuthorizationResponse<UserInstallationsDto>(listResponse, ct);
+            if (list.Installations is null) throw new GitHubProblem("GITHUB_AUTHORIZATION_UNAVAILABLE", 502);
+            // Installation tokens can see every repository granted to the app. Limit linking to the
+            // authenticated user's personal installation before switching to installation tokens.
+            var installation = list.Installations.FirstOrDefault(item => item.Id > 0 &&
+                (installationId is null || item.Id == installationId) && item.Account?.Id == user.Id &&
+                item.TargetType == "User" && item.SuspendedAt is null);
+            if (installation is not null)
+                return new(user.Id, user.Login, installation.Id, user.Id, user.Login, "User",
+                    installation.RepositorySelection ?? "selected", installation.Permissions ?? new());
+            if (list.Installations.Count < 100)
+            {
+                if (installationId is not null) throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+                return null;
+            }
+        }
+        throw new GitHubProblem("GITHUB_AUTHORIZATION_UNAVAILABLE", 502);
+    }
+
+    private static async Task<T> ReadAuthorizationResponse<T>(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+            throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+        if (!response.IsSuccessStatusCode) throw new GitHubProblem("GITHUB_AUTHORIZATION_UNAVAILABLE", 502);
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(Json, ct) ?? throw new GitHubProblem("GITHUB_AUTHORIZATION_UNAVAILABLE", 502);
+        }
+        catch (JsonException)
+        {
+            throw new GitHubProblem("GITHUB_AUTHORIZATION_UNAVAILABLE", 502);
+        }
     }
     public async Task<GitHubInstallationAccess> CreateInstallationAccessAsync(long installationId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct)
     {
@@ -120,7 +193,11 @@ public sealed class GitHubAppProvider(HttpClient http, IConfiguration configurat
     }
     private static int Priority(string path) { var lower = path.ToLowerInvariant(); var name = Path.GetFileName(lower); return name is "package.json" or "dockerfile" or "compose.yml" or "compose.yaml" || lower.EndsWith(".csproj") ? 0 : lower.StartsWith(".github/workflows/") ? 1 : name.StartsWith("readme") ? 2 : 3; }
     private sealed record AccountDto(long Id, string Login);
-    private sealed record InstallationDto(long Id, AccountDto Account, [property: JsonPropertyName("target_type")] string? TargetType, [property: JsonPropertyName("repository_selection")] string? RepositorySelection, Dictionary<string, string>? Permissions);
+    private sealed record UserTokenDto([property: JsonPropertyName("access_token")] string? AccessToken, [property: JsonPropertyName("token_type")] string? TokenType);
+    private sealed record UserInstallationsDto(List<InstallationDto>? Installations);
+    private sealed record InstallationDto(long Id, AccountDto? Account, [property: JsonPropertyName("target_type")] string? TargetType,
+        [property: JsonPropertyName("repository_selection")] string? RepositorySelection,
+        [property: JsonPropertyName("suspended_at")] DateTimeOffset? SuspendedAt, Dictionary<string, string>? Permissions);
     private sealed record InstallationTokenDto(string Token, [property: JsonPropertyName("expires_at")] DateTime ExpiresAt); private sealed record OwnerDto(string Login);
     private sealed record RepositoryDto(long Id, OwnerDto Owner, string Name, [property: JsonPropertyName("full_name")] string FullName, bool Private, [property: JsonPropertyName("default_branch")] string DefaultBranch, [property: JsonPropertyName("html_url")] string HtmlUrl);
     private sealed record RepositoriesDto(List<RepositoryDto> Repositories); private sealed record GitObjectDto(string Sha); private sealed record ReferenceDto(GitObjectDto Object);

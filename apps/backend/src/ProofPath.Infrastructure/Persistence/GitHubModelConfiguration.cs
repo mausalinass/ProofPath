@@ -14,7 +14,8 @@ public static class GitHubModelConfiguration
             entity.Property(item => item.ExternalLogin).HasMaxLength(255).IsRequired();
             entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(32);
             entity.HasIndex(item => new { item.CandidateProfileId, item.Provider }).IsUnique();
-            entity.HasIndex(item => new { item.Provider, item.ExternalAccountId }).IsUnique();
+            entity.HasIndex(item => new { item.Provider, item.ExternalAccountId }).IsUnique()
+                .HasFilter("\"OwnershipVerifiedAt\" IS NOT NULL");
             entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(item => item.CandidateProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
@@ -25,7 +26,7 @@ public static class GitHubModelConfiguration
             entity.Property(item => item.TargetType).HasMaxLength(32).IsRequired();
             entity.Property(item => item.RepositorySelection).HasMaxLength(32).IsRequired();
             entity.Property(item => item.PermissionsJson).HasColumnType("jsonb");
-            entity.HasIndex(item => item.InstallationId).IsUnique();
+            entity.HasIndex(item => item.InstallationId);
             entity.HasIndex(item => item.ConnectedAccountId).IsUnique();
             entity.HasOne<ConnectedAccount>().WithOne().HasForeignKey<GitHubInstallation>(item => item.ConnectedAccountId)
                 .OnDelete(DeleteBehavior.Cascade);

@@ -13,6 +13,7 @@ public sealed class ConnectedAccount
     public DateTime ConnectedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? DisconnectedAt { get; set; }
+    public DateTime? OwnershipVerifiedAt { get; set; }
 }
 
 public sealed class GitHubInstallation

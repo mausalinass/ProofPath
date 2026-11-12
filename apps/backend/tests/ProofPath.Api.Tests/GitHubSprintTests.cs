@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProofPath.Application.Analysis;
 using ProofPath.Application.GitHub;
+using ProofPath.Domain.Entities;
 using ProofPath.Infrastructure.GitHub;
 using ProofPath.Infrastructure.Persistence;
 
@@ -15,12 +16,26 @@ namespace ProofPath.Api.Tests;
 public sealed class FakeGitHubProvider : IGitHubProvider
 {
     public Uri BuildInstallationUri(string state) => new($"https://github.test/install?state={Uri.EscapeDataString(state)}");
-    public Task<VerifiedGitHubInstallation> VerifyInstallationAsync(long installationId, CancellationToken ct) =>
-        Task.FromResult(new VerifiedGitHubInstallation(42, "octocat", installationId, 42, "octocat", "User", "selected", new Dictionary<string, string> { ["contents"] = "read", ["metadata"] = "read" }));
+    public Uri BuildAuthorizationUri(string state, string challenge) => new($"https://github.test/authorize?state={Uri.EscapeDataString(state)}");
+    public Task<VerifiedGitHubInstallation?> VerifyInstallationAsync(string code, string verifier, long? installationId, CancellationToken ct)
+    {
+        var identity = code switch
+        {
+            "existing" => (User: 42L, Installation: 99L, Login: "octocat"),
+            "alice" => (User: 43L, Installation: 100L, Login: "synthetic-a"),
+            "bob" => (User: 44L, Installation: 200L, Login: "synthetic-b"),
+            _ => (User: 0L, Installation: 0L, Login: "")
+        };
+        if (installationId is not null && installationId != identity.Installation)
+            throw new GitHubProblem("GITHUB_INSTALLATION_NOT_AUTHORIZED", 403);
+        return Task.FromResult<VerifiedGitHubInstallation?>(identity.User == 0 ? null : new(identity.User, identity.Login,
+            identity.Installation, identity.User, identity.Login, "User", "selected",
+            new Dictionary<string, string> { ["contents"] = "read", ["metadata"] = "read" }));
+    }
     public Task<GitHubInstallationAccess> CreateInstallationAccessAsync(long installationId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct) =>
         Task.FromResult(new GitHubInstallationAccess("ephemeral-test-token", DateTime.UtcNow.AddHours(1)));
     public Task<IReadOnlyList<GitHubRepositoryDescriptor>> ListRepositoriesAsync(long installationId, CancellationToken ct) => Task.FromResult<IReadOnlyList<GitHubRepositoryDescriptor>>(
-        Enumerable.Range(1, 6).Select(index => new GitHubRepositoryDescriptor(index, "octocat", $"repo-{index}", $"octocat/repo-{index}", index == 2, "main", $"https://github.test/octocat/repo-{index}")).ToArray());
+        Enumerable.Range(installationId == 200 ? 101 : 1, 6).Select(index => new GitHubRepositoryDescriptor(index, "octocat", $"repo-{index}", $"octocat/repo-{index}", index == 2, "main", $"https://github.test/octocat/repo-{index}")).ToArray());
     public Task<GitHubRepositorySnapshot> ReadSnapshotAsync(long installationId, long repositoryId, CancellationToken ct)
     {
         var repository = new GitHubRepositoryDescriptor(repositoryId, "octocat", $"repo-{repositoryId}", $"octocat/repo-{repositoryId}", false, "main", $"https://github.test/octocat/repo-{repositoryId}");
@@ -94,6 +109,58 @@ public sealed class GitHubProviderContractTests
     private static HttpResponseMessage Token() => Json(HttpStatusCode.OK, new Dictionary<string, object?>
     { ["token"] = "ephemeral", ["expires_at"] = DateTime.UtcNow.AddHours(1) });
 
+    [Theory]
+    [InlineData(42, "User", 77, true)]
+    [InlineData(43, "User", 77, false)]
+    [InlineData(42, "Organization", 77, false)]
+    [InlineData(42, "User", 88, false)]
+    public async Task AuthorizationUsesTheUserTokenAndRequiresTheClaimedPersonalInstallation(
+        long installationOwner, string targetType, long requestedInstallation, bool authorized)
+    {
+        using var http = new HttpClient(new Handler(async request =>
+        {
+            var url = request.RequestUri!;
+            if (url.AbsolutePath == "/login/oauth/access_token")
+            {
+                Assert.Equal("github.com", url.Host);
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Empty(url.Query);
+                var body = await request.Content!.ReadAsStringAsync();
+                Assert.Contains("code_verifier=synthetic-verifier", body);
+                Assert.Contains("code=synthetic-code", body);
+                return Json(HttpStatusCode.OK, new { access_token = "synthetic-user-token", token_type = "bearer" });
+            }
+            Assert.Equal("api.github.com", url.Host);
+            Assert.Equal("synthetic-user-token", request.Headers.Authorization!.Parameter);
+            return url.AbsolutePath switch
+            {
+                "/user" => Json(HttpStatusCode.OK, new { id = 42, login = "synthetic-user" }),
+                "/user/installations" => Json(HttpStatusCode.OK, new { installations = new[]
+                {
+                    new { id = 77, account = new { id = installationOwner }, target_type = targetType,
+                        permissions = new { metadata = "read", contents = "read" } }
+                } }),
+                _ => throw new InvalidOperationException(url.AbsolutePath)
+            };
+        }));
+        var provider = new GitHubAppProvider(http, Configuration());
+        var uri = provider.BuildAuthorizationUri("synthetic-state", "synthetic-challenge");
+        Assert.Contains("code_challenge_method=S256", uri.Query);
+        Assert.Contains("state=synthetic-state", uri.Query);
+        if (authorized)
+        {
+            var result = await provider.VerifyInstallationAsync("synthetic-code", "synthetic-verifier", requestedInstallation, default);
+            Assert.Equal(42L, result!.AuthorizingUserId);
+            Assert.Equal(77L, result.InstallationId);
+        }
+        else
+        {
+            var rejected = await Assert.ThrowsAsync<GitHubProblem>(() =>
+                provider.VerifyInstallationAsync("synthetic-code", "synthetic-verifier", requestedInstallation, default));
+            Assert.Equal(403, rejected.Status);
+        }
+    }
+
     [Fact]
     public async Task RepositoryDiscoveryPaginatesAndClassifiesRateLimitsAsRetryable()
     {
@@ -161,15 +228,20 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.Created, (await Write(client, HttpMethod.Post, "/api/v1/auth/register", new { email, password = Password, firstName = "Grace" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Write(client, HttpMethod.Post, "/api/v1/auth/login", new { email, password = Password })).StatusCode); return client;
     }
+    private static async Task<string> Start(HttpClient client)
+    {
+        using var connect = await Write(client, HttpMethod.Post, "/api/v1/github/connect", new { });
+        Assert.Equal(HttpStatusCode.OK, connect.StatusCode);
+        var url = new Uri((await connect.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
+        return url.Query.Split("state=")[1];
+    }
     [Fact]
     public async Task ConnectionSelectionAnalysisEvidenceAndDisconnectAreOwnerScoped()
     {
-        using var client = await User(); var connect = await Write(client, HttpMethod.Post, "/api/v1/github/connect", new { });
-        var url = new Uri((await connect.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
-        var state = Uri.UnescapeDataString(url.Query.Split("state=")[1]);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=unexpected")).StatusCode);
-        var callback = await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=install"); Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={Uri.EscapeDataString(state)}&installation_id=99&setup_action=install")).StatusCode);
+        using var client = await User(); var state = await Start(client);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={state}&installation_id=99&setup_action=unexpected")).StatusCode);
+        var callback = await client.GetAsync($"/api/v1/github/callback?state={state}&code=existing"); Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/github/callback?state={state}&code=existing")).StatusCode);
         var repositories = await client.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories?sync=true"); Assert.Equal(6, repositories!.Length); Assert.All(repositories, item => Assert.False(item.IncludedForAnalysis));
         Assert.Equal(HttpStatusCode.BadRequest, (await Write(client, HttpMethod.Put, "/api/v1/github/repositories/selection", new { repositoryIds = Enumerable.Range(1, 6).Select(i => (long)i) })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, HttpMethod.Put, "/api/v1/github/repositories/selection", new { repositoryIds = new[] { 500L } })).StatusCode);
@@ -189,5 +261,56 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
         await using var verification = fixture.Factory.Services.CreateAsyncScope(); var database = verification.ServiceProvider.GetRequiredService<ProofPathDbContext>();
         Assert.False(await database.Repositories.AnyAsync(item => repositoryIds.Contains(item.Id)));
         Assert.False(await database.EvidenceItems.AnyAsync(item => evidenceIds.Contains(item.Id)));
+    }
+
+    [Fact]
+    public async Task TwoCandidatesConnectOnlyTheirOwnInstallationsAndCannotUseEachOthersStateOrRepositories()
+    {
+        using var alice = await User();
+        using var bob = await User();
+        using var anonymous = fixture.Client();
+        var bobIdentity = await bob.GetFromJsonAsync<JsonElement>("/api/v1/auth/me");
+        var bobId = bobIdentity.GetProperty("id").GetString();
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<ProofPathDbContext>();
+            var profile = await database.CandidateProfiles.SingleAsync(item => item.UserId == bobId);
+            var legacy = new ConnectedAccount { Id = Guid.NewGuid(), CandidateProfileId = profile.Id, ExternalAccountId = 43, ExternalLogin = "synthetic-a" };
+            database.ConnectedAccounts.Add(legacy);
+            database.GitHubInstallations.Add(new GitHubInstallation { Id = Guid.NewGuid(), ConnectedAccountId = legacy.Id,
+                InstallationId = 100, TargetAccountId = 43, TargetLogin = "synthetic-a", TargetType = "User" });
+            await database.SaveChangesAsync();
+        }
+        var legacyStatus = await bob.GetFromJsonAsync<GitHubConnectionView>("/api/v1/github/status");
+        Assert.False(legacyStatus!.Connected);
+        Assert.Null(legacyStatus.Login);
+        Assert.Equal(HttpStatusCode.Conflict, (await bob.GetAsync("/api/v1/github/repositories")).StatusCode);
+        var state = await Start(alice);
+        var callback = $"/api/v1/github/callback?state={state}&code=alice";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(callback)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await bob.GetAsync(callback)).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await alice.GetAsync(callback)).StatusCode);
+
+        var bobState = await Start(bob);
+        var install = await bob.GetAsync($"/api/v1/github/callback?state={bobState}&code=uninstalled");
+        Assert.Equal(HttpStatusCode.Redirect, install.StatusCode);
+        var setupState = install.Headers.Location!.Query.Split("state=")[1];
+        var authorization = await bob.GetAsync($"/api/v1/github/callback?state={setupState}&installation_id=100&setup_action=install");
+        Assert.Equal(HttpStatusCode.Redirect, authorization.StatusCode);
+        var claimedState = authorization.Headers.Location!.Query.Split("state=")[1];
+        var rejected = await bob.GetAsync($"/api/v1/github/callback?state={claimedState}&code=bob");
+        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        Assert.Equal("GITHUB_INSTALLATION_NOT_AUTHORIZED", (await rejected.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.False((await bob.GetFromJsonAsync<GitHubConnectionView>("/api/v1/github/status"))!.Connected);
+
+        bobState = await Start(bob);
+        Assert.Equal(HttpStatusCode.Redirect, (await bob.GetAsync($"/api/v1/github/callback?state={bobState}&code=bob")).StatusCode);
+        var aliceRepos = (await alice.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories"))!;
+        var bobRepos = (await bob.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories"))!;
+        Assert.Equal(6, aliceRepos.Length);
+        Assert.Equal(6, bobRepos.Length);
+        Assert.Empty(aliceRepos.Select(repo => repo.GitHubId).Intersect(bobRepos.Select(repo => repo.GitHubId)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await Write(bob, HttpMethod.Put, "/api/v1/github/repositories/selection",
+            new { repositoryIds = new[] { aliceRepos[0].GitHubId } })).StatusCode);
     }
 }

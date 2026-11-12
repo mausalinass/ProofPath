@@ -33,6 +33,9 @@ public static class ProductionConfiguration
                 "Configure Privacy:CurrentVersion for production.");
             Require(Uri.TryCreate(configuration["Frontend:PublicUrl"], UriKind.Absolute, out _),
                 "Configure Frontend:PublicUrl for production.");
+            foreach (var key in new[] { "GitHub:ClientId", "GitHub:ClientSecret" })
+                Require(!string.IsNullOrWhiteSpace(configuration[key]) && configuration[key] != "REPLACE",
+                    $"Configure {key} securely for production.");
         }
         foreach (var key in new[] { "Storage:Bucket", "Storage:Region", "OpenAI:ApiKey", "GitHub:AppId", "GitHub:AppSlug", "GitHub:PrivateKeyPem" })
             Require(!string.IsNullOrWhiteSpace(configuration[key]) && !string.Equals(configuration[key], "REPLACE", StringComparison.Ordinal), $"Configure {key} securely for production.");
