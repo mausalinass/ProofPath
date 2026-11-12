@@ -36,7 +36,8 @@ app.MapPost("/fixtures/sprints-3-5", async (FixtureRequest request, ProofPathDbC
     database.ConnectedAccounts.Add(new ConnectedAccount
     {
         Id = accountId, CandidateProfileId = profile.Id, Provider = "GitHub", ExternalAccountId = externalId,
-        ExternalLogin = "proofpath-fixture", Status = ConnectedAccountStatus.Active, ConnectedAt = now, UpdatedAt = now
+        ExternalLogin = "proofpath-fixture", Status = ConnectedAccountStatus.Active, ConnectedAt = now,
+        UpdatedAt = now, OwnershipVerifiedAt = now
     });
     database.GitHubInstallations.Add(new GitHubInstallation
     {
