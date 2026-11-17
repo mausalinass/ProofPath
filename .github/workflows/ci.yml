@@ -89,6 +89,7 @@ jobs:
       - uses: actions/setup-node@v6
         with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
       - name: Audit NuGet packages
+        shell: bash
         run: |
           dotnet list apps/backend/ProofPath.slnx package --vulnerable --include-transitive --format json |
             tee "$RUNNER_TEMP/nuget-audit.json"
@@ -111,7 +112,7 @@ jobs:
           "$RUNNER_TEMP/trivy" config --severity HIGH,CRITICAL infra
           for component in api worker web; do
             "$RUNNER_TEMP/trivy" image --scanners vuln --severity HIGH,CRITICAL \
-              --ignore-unfixed --exit-code 1 "proofpath-$component:$IMAGE_TAG"
+              --exit-code 1 "proofpath-$component:$IMAGE_TAG"
           done
 
   code-scanning:
