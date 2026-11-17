@@ -83,22 +83,23 @@ public sealed class MatchingWorkspace(ProofPathDbContext database) : IMatchingWo
 
     public async Task<MatchView?> LatestAsync(string userId, Guid jobId, CancellationToken ct)
     {
-        if (await OwnedJob(userId, jobId, ct) is null) throw new MatchingProblem("JOB_NOT_FOUND", 404);
-        var result = await database.MatchResults.AsNoTracking().Where(item => item.JobId == jobId)
+        var job = await OwnedJob(userId, jobId, ct) ?? throw new MatchingProblem("JOB_NOT_FOUND", 404);
+        var result = await database.MatchResults.AsNoTracking().Where(item => item.JobId == jobId && item.CandidateProfileId == job.CandidateProfileId)
             .OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id).FirstOrDefaultAsync(ct);
         return result is null ? null : View(result, Deserialize<MatchResultDraft>(result.ResultJson)!);
     }
     public async Task<MatchView?> GetAsync(string userId, Guid jobId, Guid matchId, CancellationToken ct)
     {
-        if (await OwnedJob(userId, jobId, ct) is null) throw new MatchingProblem("JOB_NOT_FOUND", 404);
-        var result = await database.MatchResults.AsNoTracking().SingleOrDefaultAsync(item => item.JobId == jobId && item.Id == matchId, ct);
+        var job = await OwnedJob(userId, jobId, ct) ?? throw new MatchingProblem("JOB_NOT_FOUND", 404);
+        var result = await database.MatchResults.AsNoTracking().SingleOrDefaultAsync(item =>
+            item.JobId == jobId && item.CandidateProfileId == job.CandidateProfileId && item.Id == matchId, ct);
         return result is null ? null : View(result, Deserialize<MatchResultDraft>(result.ResultJson)!);
     }
     public async Task<MatchSummary[]> ListAsync(string userId, Guid jobId, CancellationToken ct)
     {
-        if (await OwnedJob(userId, jobId, ct) is null) throw new MatchingProblem("JOB_NOT_FOUND", 404);
-        var stored = await database.MatchResults.AsNoTracking().Where(item => item.JobId == jobId)
-            .OrderByDescending(item => item.CreatedAt).ToArrayAsync(ct);
+        var job = await OwnedJob(userId, jobId, ct) ?? throw new MatchingProblem("JOB_NOT_FOUND", 404);
+        var stored = await database.MatchResults.AsNoTracking().Where(item => item.JobId == jobId && item.CandidateProfileId == job.CandidateProfileId)
+            .OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id).ToArrayAsync(ct);
         return stored.Select(item => new MatchSummary(item.Id, item.CreatedAt, item.ScoringVersionId,
             item.OverallScore == null ? null : (double)item.OverallScore,
             item.OverallClassification == null ? null : Enum.Parse<OverallMatchClassification>(item.OverallClassification),
