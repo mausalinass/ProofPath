@@ -9,7 +9,26 @@ public interface ICandidateProfileStore
 }
 
 public sealed record ProfileInput(string? FirstName, string? LastName, string? Headline,
-    string? Location, string? WorkAuthorization, string? EducationSummary);
+    string? Location, string? WorkAuthorization, string? EducationSummary)
+{
+    public Dictionary<string, string[]> Validate()
+    {
+        var errors = new Dictionary<string, string[]>();
+        Check("firstName", FirstName, 100);
+        Check("lastName", LastName, 100);
+        Check("headline", Headline, 200);
+        Check("location", Location, 150);
+        Check("workAuthorization", WorkAuthorization, 200);
+        Check("educationSummary", EducationSummary, 2000);
+        return errors;
+
+        void Check(string field, string? value, int limit)
+        {
+            if (value?.Length > limit)
+                errors[field] = [$"Use at most {limit} characters."];
+        }
+    }
+}
 
 public sealed record ProfileView(Guid Id, string? FirstName, string? LastName, string? Headline,
     string? Location, string? WorkAuthorization, string? EducationSummary,

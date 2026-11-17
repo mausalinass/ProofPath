@@ -29,7 +29,7 @@ dotnet run --project apps/backend/src/ProofPath.Worker
 
 Estos valores duran solo en esa terminal y sus procesos hijos. Si todavía no hay clave, el upload funciona y el Worker deja un error recuperable `PROVIDER_NOT_CONFIGURED`; configurar la clave, reiniciar Worker y usar **Retry analysis**. Nunca hay un proveedor sintético de fallback en producción.
 
-El modelo por defecto es `gpt-6-astra`, reasoning `medium`. La configuración admite `OpenAI:Model`, `OpenAI:ReasoningEffort`, `OpenAI:TimeoutSeconds` (150 por defecto) y `OpenAI:ResumeMaxOutputTokens` (12.000 por defecto). El límite del Worker es cuatro minutos y la reserva dura cinco.
+El modelo por defecto para currículums y ofertas es `gpt-6-luna`, con razonamiento `medium`. La configuración admite `OpenAI:Model`, `OpenAI:ReasoningEffort`, `OpenAI:TimeoutSeconds` (150 por defecto) y `OpenAI:ResumeMaxOutputTokens` (12.000 por defecto). El límite del Worker es cuatro minutos y la reserva dura cinco.
 
 Almacenamiento local por defecto: `%LOCALAPPDATA%\ProofPath\private-resumes`. API y Worker deben usar la misma cuenta/directorio. Se puede configurar `Storage:PrivateRoot` en ambos. Usar un directorio privado fuera del repositorio, webroot y carpetas sincronizadas. El almacenamiento local se habilita solo en Development/Testing.
 
@@ -85,7 +85,7 @@ La CI incluye este mismo flujo con PostgreSQL de servicio. No hay resultado remo
 
 - [PdfPig: lectura de texto y advertencias sobre orden de contenido](https://github.com/UglyToad/PdfPig).
 - [OpenAI: Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
-- [OpenAI: GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra).
+- [OpenAI: GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 - [AWS: versiones de objetos y delete markers](https://docs.aws.amazon.com/sdkfornet/v4/apidocs/items/S3/TS3ObjectVersion.html).
 
 `store:false` solicita no almacenar la respuesta para recuperación posterior; las condiciones de tratamiento/retención de la cuenta OpenAI todavía necesitan revisión antes de producción.

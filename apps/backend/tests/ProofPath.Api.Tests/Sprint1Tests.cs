@@ -98,6 +98,33 @@ public sealed class Sprint1Tests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task UnverifiedEmailIsOnlyDisclosedAfterCorrectPassword()
+    {
+        using var app = fixture.Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Auth:RequireConfirmedEmail"] = "true",
+                    ["Frontend:PublicUrl"] = "http://localhost:5173"
+                })));
+        using var client = app.CreateClient();
+        var email = Email();
+        using var registration = await Write(client, HttpMethod.Post, "/api/v1/auth/register",
+            new { email, password = Password, firstName = "Ada" });
+        Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
+
+        using var invalid = await Write(client, HttpMethod.Post, "/api/v1/auth/login",
+            new { email, password = "Wrong-fixture-password!" });
+        Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+
+        using var unverified = await Write(client, HttpMethod.Post, "/api/v1/auth/login",
+            new { email, password = Password });
+        Assert.Equal(HttpStatusCode.Forbidden, unverified.StatusCode);
+        var response = await unverified.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("EMAIL_NOT_VERIFIED", response.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task AnonymousCannotReadWorkspace()
     {
         using var client = fixture.Client();
@@ -181,6 +208,8 @@ public sealed class Sprint1Tests(ApiFixture fixture)
         var (client, email) = await User(); using (client)
         {
             var initial = await client.GetFromJsonAsync<ProfileView>("/api/v1/profile"); Assert.NotNull(initial);
+            using var oversized = await Write(client, HttpMethod.Put, "/api/v1/profile", new { headline = new string('x', 201) });
+            Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
             Assert.Equal("Ada", initial.FirstName);
             Assert.Equal(HttpStatusCode.OK, (await Write(client, HttpMethod.Put, "/api/v1/profile",
                 new { firstName = " Ada ", lastName = "Lovelace", headline = "Engineer", location = "Remote", workAuthorization = "Context", educationSummary = "CS" })).StatusCode);

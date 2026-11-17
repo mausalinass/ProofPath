@@ -24,9 +24,12 @@ public static class CandidateEndpoints
         group.MapPut("/profile", async (ProfileRequest request, ClaimsPrincipal user,
             CandidateProfileService profiles, CancellationToken ct) =>
         {
+            var input = new ProfileInput(request.FirstName, request.LastName, request.Headline, request.Location,
+                request.WorkAuthorization, request.EducationSummary);
+            var errors = input.Validate();
+            if (errors.Count != 0) return Results.ValidationProblem(errors);
             return Results.Ok(await profiles.SaveAsync(user.FindFirstValue(ClaimTypes.NameIdentifier)!,
-                new ProfileInput(request.FirstName, request.LastName, request.Headline, request.Location,
-                    request.WorkAuthorization, request.EducationSummary), ct));
+                input, ct));
         });
         group.MapGet("/home", async (ClaimsPrincipal user, CandidateProfileService profiles, ProofPathDbContext database, CancellationToken ct) =>
         {

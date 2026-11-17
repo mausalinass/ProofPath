@@ -1,5 +1,8 @@
+using System.Globalization;
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using ProofPath.Application.Analysis;
@@ -7,39 +10,60 @@ using ProofPath.Application.Files;
 using ProofPath.Application.Resumes;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
+using UglyToad.PdfPig.Exceptions;
 
 namespace ProofPath.Infrastructure.Resumes;
 
-public sealed class DocumentTextExtractor : IDocumentTextExtractor
+public sealed partial class DocumentTextExtractor : IDocumentTextExtractor
 {
     public const string Pdf = "application/pdf";
     public const string Docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-    public void Validate(byte[] content, string fileName, string contentType)
+    private static readonly XNamespace StrictW = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+
+    [GeneratedRegex(@"/(?:JavaScript|JS|Launch|EmbeddedFile|EmbeddedFiles|Encrypt|RichMedia|XFA)(?=[\x00\t\n\f\r ()<>\[\]{}/%]|$)")]
+    private static partial Regex RestrictedPdfNames();
+
+    [GeneratedRegex(@"#[0-9A-Fa-f]{2}")]
+    private static partial Regex PdfNameEscapes();
+
+    public string Validate(byte[] content, string fileName, string contentType)
     {
         if (content.Length == 0) throw new ResumeProblem("EMPTY_FILE");
         if (content.LongLength > ResumeLimits.MaxBytes) throw new ResumeProblem("FILE_TOO_LARGE", 413);
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        if (extension == ".pdf" && contentType == Pdf && content.AsSpan().StartsWith("%PDF-"u8))
+        var expected = Path.GetExtension(fileName).ToLowerInvariant() switch
         {
-            // A coarse additional rejection, not a claim of antivirus coverage.
+            ".pdf" => Pdf,
+            ".docx" => Docx,
+            _ => throw new ResumeProblem("UNSUPPORTED_FILE_TYPE")
+        };
+        if (!string.IsNullOrWhiteSpace(contentType) &&
+            (!MediaTypeHeaderValue.TryParse(contentType, out var declared) ||
+             !string.Equals(declared.MediaType, expected, StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(declared.MediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)))
+            throw new ResumeProblem("UNSUPPORTED_FILE_TYPE");
+
+        if (expected == Pdf)
+        {
+            if (!content.AsSpan().StartsWith("%PDF-"u8)) throw new ResumeProblem("INVALID_PDF");
+            // Full parsing stays on the Worker. Check the container before private storage.
             var syntax = Encoding.Latin1.GetString(content);
-            if (!syntax.Contains("%%EOF", StringComparison.Ordinal) || !syntax.Contains("startxref", StringComparison.Ordinal))
+            var eof = syntax.LastIndexOf("%%EOF", StringComparison.Ordinal);
+            var xref = eof > 0 ? syntax.AsSpan(0, eof).LastIndexOf("startxref", StringComparison.Ordinal) : -1;
+            if (xref < 0 || !int.TryParse(syntax.AsSpan((xref + "startxref".Length)..eof).Trim(),
+                    NumberStyles.None, CultureInfo.InvariantCulture, out var offset) || offset <= 0 || offset >= xref)
                 throw new ResumeProblem("INVALID_PDF");
-            if (new[] { "/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/Encrypt", "/RichMedia", "/XFA" }
-                .Any(token => syntax.Contains(token, StringComparison.Ordinal))) throw new ResumeProblem("ACTIVE_OR_ENCRYPTED_PDF");
-            // Do not invoke the complex PDF parser on the request-serving API path. Full parsing and
-            // page-count enforcement happen in the separately deployed background Worker task.
-            return;
+            var names = PdfNameEscapes().Replace(syntax,
+                match => ((char)byte.Parse(match.Value.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture)).ToString());
+            if (RestrictedPdfNames().IsMatch(names)) throw new ResumeProblem("ACTIVE_OR_ENCRYPTED_PDF");
+            return expected;
         }
-        if (extension == ".docx" && contentType == Docx && content.AsSpan().StartsWith("PK\x03\x04"u8))
-        {
-            try { using var zip = new ZipArchive(new MemoryStream(content), ZipArchiveMode.Read); ValidateArchive(zip); }
-            catch (ResumeProblem) { throw; }
-            catch (Exception) { throw new ResumeProblem("INVALID_DOCX"); }
-            return;
-        }
-        throw new ResumeProblem("UNSUPPORTED_FILE_TYPE");
+
+        if (!content.AsSpan().StartsWith("PK\x03\x04"u8)) throw new ResumeProblem("INVALID_DOCX");
+        try { using var zip = new ZipArchive(new MemoryStream(content), ZipArchiveMode.Read); ValidateArchive(zip); }
+        catch (Exception error) when (error is InvalidDataException or XmlException or NotSupportedException)
+        { throw new ResumeProblem("INVALID_DOCX"); }
+        return expected;
     }
     private static void ValidateArchive(ZipArchive zip)
     {
@@ -56,7 +80,10 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
             (string?)node.Attribute("ContentType") == "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"))
             throw new ResumeProblem("INVALID_DOCX");
         if (types.ToString().Contains("macroEnabled", StringComparison.OrdinalIgnoreCase)) throw new ResumeProblem("UNSAFE_DOCX_CONTAINER");
-        _ = ReadXml(zip.GetEntry("word/document.xml") ?? throw new ResumeProblem("INVALID_DOCX"));
+        var document = ReadXml(zip.GetEntry("word/document.xml") ?? throw new ResumeProblem("INVALID_DOCX"));
+        if (document.Root is not { } root || (root.Name != W + "document" && root.Name != StrictW + "document") ||
+            root.Element(root.Name.Namespace + "body") is null)
+            throw new ResumeProblem("INVALID_DOCX");
         foreach (var relationship in zip.Entries.Where(entry => entry.FullName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase)))
         {
             var xml = ReadXml(relationship);
@@ -82,15 +109,16 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
             if (contentType == Pdf)
             {
                 using var pdf = PdfDocument.Open(content);
+                if (pdf.IsEncrypted) throw new ResumeProblem("ACTIVE_OR_ENCRYPTED_PDF");
                 if (pdf.NumberOfPages > 100) throw new ResumeProblem("DOCUMENT_TOO_COMPLEX");
                 foreach (var page in pdf.GetPages())
                 {
                     ct.ThrowIfCancellationRequested();
                     var text = ContentOrderTextExtractor.GetText(page).Trim();
                     if (text.Length > 0) blocks.Add(new SourceBlock($"page-{page.Number}", page.Number, text));
-                    else warnings.Add($"Page {page.Number} contains no extractable text. Image content was not analyzed.");
+                    else warnings.Add($"Page {page.Number} contains no extractable text.");
+                    if (page.NumberOfImages > 0) warnings.Add($"Images on page {page.Number} were not analyzed.");
                 }
-                warnings.Add("Review PDF reading order, especially multi-column layouts. Images were not analyzed.");
             }
             else
             {
@@ -101,11 +129,14 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
                     .OrderBy(entry => entry.FullName, StringComparer.Ordinal))
                 {
                     ct.ThrowIfCancellationRequested(); var index = 0;
-                    foreach (var paragraph in ReadXml(entry).Descendants(W + "p"))
+                    var part = ReadXml(entry);
+                    var word = part.Root?.Name.Namespace ?? W;
+                    if (word != W && word != StrictW) continue;
+                    foreach (var paragraph in part.Descendants(word + "p"))
                     {
                         index++;
-                        var text = string.Concat(paragraph.Descendants().Where(node => node.Name == W + "t" || node.Name == W + "tab" || node.Name == W + "br")
-                            .Select(node => node.Name == W + "t" ? node.Value : " ")).Trim();
+                        var text = string.Concat(paragraph.Descendants().Where(node => node.Name == word + "t" || node.Name == word + "tab" || node.Name == word + "br")
+                            .Select(node => node.Name == word + "t" ? node.Value : " ")).Trim();
                         if (text.Length > 0) blocks.Add(new SourceBlock($"{entry.FullName}:p{index}", null, text));
                     }
                 }
@@ -120,6 +151,7 @@ public sealed class DocumentTextExtractor : IDocumentTextExtractor
         catch (OperationCanceledException) { throw; }
         catch (AnalysisFailure) { throw; }
         catch (ResumeProblem problem) { throw new AnalysisFailure(problem.Code, false); }
+        catch (PdfDocumentEncryptedException) { throw new AnalysisFailure("ACTIVE_OR_ENCRYPTED_PDF", false); }
         catch (Exception) { throw new AnalysisFailure("DOCUMENT_EXTRACTION_FAILED", false); }
     }
 }

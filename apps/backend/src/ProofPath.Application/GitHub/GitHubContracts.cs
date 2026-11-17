@@ -44,6 +44,7 @@ public interface IGitHubWorkspace
     Task DisconnectAsync(string userId, CancellationToken ct);
     Task<IReadOnlyList<RepositoryView>> RepositoriesAsync(string userId, bool synchronize, CancellationToken ct);
     Task SaveSelectionAsync(string userId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct);
+    Task SetRepositorySelectionAsync(string userId, long repositoryId, bool include, CancellationToken ct);
     Task<IReadOnlyList<Guid>> ScanAsync(string userId, CancellationToken ct);
     Task<IReadOnlyList<GitHubEvidenceView>> EvidenceAsync(string userId, CancellationToken ct);
 }

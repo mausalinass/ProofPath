@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using ProofPath.Infrastructure.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using System.Text;
+using ProofPath.Api.Production;
 
 namespace ProofPath.Api.Endpoints;
 
@@ -46,6 +47,13 @@ public static class AuthEndpoints
             if (string.IsNullOrWhiteSpace(request.FirstName))
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["firstName"] = ["Name is required."] });
 
+            if (request.Email.Length > 256 || request.Password.Length > 256)
+                return Results.Problem("Email or password exceeds the allowed length.", statusCode: 400);
+
+            var profile = new ProfileInput(request.FirstName, request.LastName, null, null, null, null);
+            var profileErrors = profile.Validate();
+            if (profileErrors.Count != 0) return Results.ValidationProblem(profileErrors);
+
             var privacyVersion = configuration["Privacy:CurrentVersion"] ?? "2026-10-30";
             var privacyRequired = configuration.GetValue<bool?>("Auth:RequirePrivacyConsent")
                 ?? !(environment.IsDevelopment() || environment.IsEnvironment("Testing"));
@@ -72,7 +80,8 @@ public static class AuthEndpoints
                 return Results.ValidationProblem(errors);
             }
 
-            await profiles.SaveAsync(user.Id, new ProfileInput(request.FirstName, request.LastName, null, null, null, null), cancellationToken);
+            await DatabaseTenantContext.UseNewIdentityAsync(database, user.Id, cancellationToken);
+            await profiles.SaveAsync(user.Id, profile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             var confirmationRequired = userManager.Options.SignIn.RequireConfirmedEmail;
             if (confirmationRequired)
@@ -112,6 +121,9 @@ public static class AuthEndpoints
                 });
             }
 
+            if (request.Email.Length > 256 || request.Password.Length > 256)
+                return Results.Problem("Invalid credentials.", statusCode: 401);
+
             var user = await userManager.FindByEmailAsync(request.Email);
             if (user is null)
             {
@@ -119,7 +131,7 @@ public static class AuthEndpoints
             }
 
             var result = await signInManager.PasswordSignInAsync(user, request.Password, isPersistent: false, lockoutOnFailure: true);
-            if (result.IsNotAllowed)
+            if (result.IsNotAllowed && await userManager.CheckPasswordAsync(user, request.Password))
                 return Results.Problem("Verify your email before signing in.", statusCode: 403,
                     extensions: new Dictionary<string, object?> { ["code"] = "EMAIL_NOT_VERIFIED" });
             if (!result.Succeeded)
@@ -133,7 +145,7 @@ public static class AuthEndpoints
         endpoints.MapPost($"{prefix}/confirm-email", async (ConfirmEmailRequest request,
             UserManager<ApplicationUser> users, CancellationToken cancellationToken) =>
         {
-            var user = string.IsNullOrWhiteSpace(request.Email) ? null : await users.FindByEmailAsync(request.Email);
+            var user = IsValidEmailInput(request.Email) ? await users.FindByEmailAsync(request.Email!) : null;
             if (user is null || !TryDecodeToken(request.Token, out var token)) return Results.Problem("The verification link is invalid.", statusCode: 400);
             var result = await users.ConfirmEmailAsync(user, token);
             return result.Succeeded ? Results.NoContent() : Results.Problem("The verification link is invalid or expired.", statusCode: 400);
@@ -143,7 +155,7 @@ public static class AuthEndpoints
             UserManager<ApplicationUser> users, IAccountEmailSender emails, IConfiguration configuration,
             CancellationToken cancellationToken) =>
         {
-            var user = string.IsNullOrWhiteSpace(request.Email) ? null : await users.FindByEmailAsync(request.Email);
+            var user = IsValidEmailInput(request.Email) ? await users.FindByEmailAsync(request.Email!) : null;
             if (user is not null && await users.IsEmailConfirmedAsync(user))
             {
                 var token = EncodeToken(await users.GeneratePasswordResetTokenAsync(user));
@@ -158,8 +170,8 @@ public static class AuthEndpoints
         endpoints.MapPost($"{prefix}/reset-password", async (ResetPasswordRequest request,
             UserManager<ApplicationUser> users) =>
         {
-            var user = string.IsNullOrWhiteSpace(request.Email) ? null : await users.FindByEmailAsync(request.Email);
-            if (user is null || !TryDecodeToken(request.Token, out var token) || string.IsNullOrWhiteSpace(request.Password))
+            var user = IsValidEmailInput(request.Email) ? await users.FindByEmailAsync(request.Email!) : null;
+            if (user is null || !TryDecodeToken(request.Token, out var token) || string.IsNullOrWhiteSpace(request.Password) || request.Password.Length > 256)
                 return Results.Problem("The password reset link is invalid or expired.", statusCode: 400);
             var result = await users.ResetPasswordAsync(user, token, request.Password);
             if (!result.Succeeded)
@@ -176,7 +188,7 @@ public static class AuthEndpoints
         {
             await signInManager.SignOutAsync();
             return Results.NoContent();
-        });
+        }).RequireAuthorization();
 
         endpoints.MapGet($"{prefix}/me", (ClaimsPrincipal principal) =>
         {
@@ -191,10 +203,11 @@ public static class AuthEndpoints
     }
 
     private static string EncodeToken(string token) => WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+    private static bool IsValidEmailInput(string? email) => email is { Length: <= 256 } && !string.IsNullOrWhiteSpace(email);
     private static bool TryDecodeToken(string? value, out string token)
     {
         token = "";
-        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 2048) return false;
         try { token = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(value)); return true; }
         catch (FormatException) { return false; }
     }

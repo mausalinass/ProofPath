@@ -93,6 +93,8 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
         if (!verified.Permissions.TryGetValue("contents", out var contents) || contents != "read" ||
             !verified.Permissions.TryGetValue("metadata", out var metadata) || metadata != "read")
             throw new GitHubProblem("GITHUB_PERMISSIONS_INVALID", 403);
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        await LockProfileAsync(userId, ct);
         var account = await Accounts(userId).SingleOrDefaultAsync(ct);
         if ((account is { OwnershipVerifiedAt: not null, Status: ConnectedAccountStatus.Active } &&
             account.ExternalAccountId != verified.AuthorizingUserId) ||
@@ -103,7 +105,6 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
 
         var remote = await provider.ListRepositoriesAsync(verified.InstallationId, ct);
         var now = DateTime.UtcNow;
-        await using var transaction = await database.Database.BeginTransactionAsync(ct);
         if (account is null)
         {
             account = new() { Id = Guid.NewGuid(), CandidateProfileId = state.ProfileId, ConnectedAt = now };
@@ -144,6 +145,8 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
 
     public async Task DisconnectAsync(string userId, CancellationToken ct)
     {
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        await LockProfileAsync(userId, ct);
         var result = await (from account in Accounts(userId)
                             join installation in database.GitHubInstallations on account.Id equals installation.ConnectedAccountId
                             select new { account, installation }).SingleOrDefaultAsync(ct) ?? throw new GitHubProblem("GITHUB_NOT_CONNECTED", 404);
@@ -157,32 +160,69 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
             && item.Lifecycle != "Quarantined")
             .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Stale"), ct);
         await database.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     public async Task<IReadOnlyList<RepositoryView>> RepositoriesAsync(string userId, bool synchronize, CancellationToken ct)
     {
-        var pair = await Active(userId, ct);
-        if (synchronize) await Synchronize(pair.Account, await provider.ListRepositoriesAsync(pair.Installation.InstallationId, ct), ct);
-        return await Views(pair.Account.CandidateProfileId).ToArrayAsync(ct);
-    }
-
-    public async Task SaveSelectionAsync(string userId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct)
-    {
-        var ids = repositoryIds.Distinct().ToArray(); if (ids.Length > 5) throw new GitHubProblem("REPOSITORY_LIMIT_EXCEEDED");
+        if (!synchronize)
+        {
+            var current = await Active(userId, ct);
+            return await Views(current.Account.CandidateProfileId).ToArrayAsync(ct);
+        }
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        await LockProfileAsync(userId, ct);
         var pair = await Active(userId, ct);
         await Synchronize(pair.Account, await provider.ListRepositoriesAsync(pair.Installation.InstallationId, ct), ct);
-        var available = await database.Repositories.Where(item => item.ConnectedAccountId == pair.Account.Id &&
-            item.ScanStatus != RepositoryScanStatus.AccessLost).ToListAsync(ct);
-        if (ids.Except(available.Select(item => item.GitHubId)).Any()) throw new GitHubProblem("REPOSITORY_NOT_AUTHORIZED", 403);
-        foreach (var repository in available)
+        var repositories = await Views(pair.Account.CandidateProfileId).ToArrayAsync(ct);
+        await transaction.CommitAsync(ct);
+        return repositories;
+    }
+
+    public Task SaveSelectionAsync(string userId, IReadOnlyCollection<long> repositoryIds, CancellationToken ct)
+    {
+        var ids = repositoryIds.ToHashSet();
+        if (ids.Count > 5) throw new GitHubProblem("REPOSITORY_LIMIT_EXCEEDED");
+        return UpdateSelectionAsync(userId, refresh: true, available =>
         {
-            var included = ids.Contains(repository.GitHubId);
-            if (repository.IncludedForAnalysis && !included)
-                await database.EvidenceItems.Where(item => item.RepositoryAnalysisId != null && database.RepositoryAnalyses.Any(analysis => analysis.Id == item.RepositoryAnalysisId && analysis.RepositoryId == repository.Id))
-                    .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Inactive"), ct);
-            repository.IncludedForAnalysis = included;
-        }
+            if (ids.Except(available.Select(item => item.GitHubId)).Any())
+                throw new GitHubProblem("REPOSITORY_NOT_AUTHORIZED", 403);
+            return ids;
+        }, ct);
+    }
+
+    public Task SetRepositorySelectionAsync(string userId, long repositoryId, bool include, CancellationToken ct) =>
+        UpdateSelectionAsync(userId, refresh: include, available =>
+        {
+            if (!available.Any(item => item.GitHubId == repositoryId))
+                throw new GitHubProblem("REPOSITORY_NOT_FOUND", 404);
+            var selected = available.Where(item => item.IncludedForAnalysis).Select(item => item.GitHubId).ToHashSet();
+            if (include) selected.Add(repositoryId);
+            else selected.Remove(repositoryId);
+            return selected;
+        }, ct);
+
+    private async Task UpdateSelectionAsync(string userId, bool refresh, Func<Repository[], HashSet<long>> select, CancellationToken ct)
+    {
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        await LockProfileAsync(userId, ct);
+        var pair = await Active(userId, ct);
+        if (refresh)
+            await Synchronize(pair.Account, await provider.ListRepositoriesAsync(pair.Installation.InstallationId, ct), ct);
+        var available = await database.Repositories.Where(item => item.ConnectedAccountId == pair.Account.Id &&
+            item.ScanStatus != RepositoryScanStatus.AccessLost).ToArrayAsync(ct);
+        var selected = select(available);
+        if (selected.Count > 5) throw new GitHubProblem("REPOSITORY_LIMIT_EXCEEDED");
+        var removed = available.Where(item => item.IncludedForAnalysis && !selected.Contains(item.GitHubId))
+            .Select(item => item.Id).ToArray();
+        foreach (var repository in available)
+            repository.IncludedForAnalysis = selected.Contains(repository.GitHubId);
         await database.SaveChangesAsync(ct);
+        if (removed.Length > 0)
+            await database.EvidenceItems.Where(item => item.Lifecycle == "Active" && database.RepositoryAnalyses.Any(analysis =>
+                analysis.Id == item.RepositoryAnalysisId && removed.Contains(analysis.RepositoryId)))
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Inactive"), ct);
+        await transaction.CommitAsync(ct);
     }
 
     public async Task<IReadOnlyList<Guid>> ScanAsync(string userId, CancellationToken ct)
@@ -225,6 +265,15 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
                             select new { account, installation }).SingleOrDefaultAsync(ct);
         return result is null ? throw new GitHubProblem("GITHUB_NOT_CONNECTED", 409) : (result.account, result.installation);
     }
+
+    private async Task LockProfileAsync(string userId, CancellationToken ct)
+    {
+        var profiles = await database.CandidateProfiles.FromSqlInterpolated($"""
+            SELECT * FROM "CandidateProfiles" WHERE "UserId" = {userId} FOR UPDATE
+            """).AsNoTracking().ToListAsync(ct);
+        if (profiles.Count == 0) throw new GitHubProblem("PROFILE_REQUIRED", 409);
+    }
+
     private async Task Synchronize(ConnectedAccount account, IReadOnlyList<GitHubRepositoryDescriptor> remote, CancellationToken ct)
     {
         var current = await database.Repositories.Where(item => item.ConnectedAccountId == account.Id).ToDictionaryAsync(item => item.GitHubId, ct);
@@ -236,10 +285,6 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
             repository.ScanStatus = RepositoryScanStatus.AccessLost;
         }
         var lostIds = unavailable.Select(item => item.Id).ToArray();
-        if (lostIds.Length > 0)
-            await database.EvidenceItems.Where(item => item.Lifecycle == "Active" &&
-                database.RepositoryAnalyses.Any(analysis => analysis.Id == item.RepositoryAnalysisId && lostIds.Contains(analysis.RepositoryId)))
-                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Stale"), ct);
         var reauthorized = new List<Guid>();
         foreach (var item in remote)
         {
@@ -256,11 +301,15 @@ public sealed class GitHubWorkspace(ProofPathDbContext database, IGitHubProvider
             repository.Owner = item.Owner; repository.Name = item.Name; repository.FullName = item.FullName; repository.Private = item.Private;
             repository.DefaultBranch = item.DefaultBranch; repository.HtmlUrl = item.HtmlUrl; repository.LastSyncedAt = DateTime.UtcNow;
         }
+        await database.SaveChangesAsync(ct);
+        if (lostIds.Length > 0)
+            await database.EvidenceItems.Where(item => item.Lifecycle == "Active" &&
+                database.RepositoryAnalyses.Any(analysis => analysis.Id == item.RepositoryAnalysisId && lostIds.Contains(analysis.RepositoryId)))
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Stale"), ct);
         if (reauthorized.Count > 0)
             await database.EvidenceItems.Where(item => item.Lifecycle == "Quarantined" &&
                 database.RepositoryAnalyses.Any(analysis => analysis.Id == item.RepositoryAnalysisId && reauthorized.Contains(analysis.RepositoryId)))
                 .ExecuteUpdateAsync(set => set.SetProperty(item => item.Lifecycle, "Stale"), ct);
-        await database.SaveChangesAsync(ct);
     }
     private IQueryable<RepositoryView> Views(Guid profileId) => database.Repositories.AsNoTracking().Where(item => item.CandidateProfileId == profileId && item.ScanStatus != RepositoryScanStatus.AccessLost)
         .OrderBy(item => item.FullName).Select(item => new RepositoryView(item.Id, item.GitHubId, item.FullName, item.Private,
@@ -294,10 +343,19 @@ public sealed class RepositoryAnalysisCompletion(ProofPathDbContext database) : 
     public async Task SaveAsync(AnalysisLease lease, AnalysisOutput output, CancellationToken ct)
     {
         if (lease.Kind != AnalysisKind.Repository) return; var result = JsonSerializer.Deserialize<RepositoryAnalysisResult>(output.ResultJson) ?? throw new AnalysisFailure("GITHUB_INVALID_RESULT", false);
-        var repository = await database.Repositories.SingleOrDefaultAsync(item => item.Id == lease.ResourceId &&
-            item.CandidateProfileId == lease.CandidateProfileId && item.IncludedForAnalysis &&
-            database.ConnectedAccounts.Any(account => account.Id == item.ConnectedAccountId &&
-                account.Status == ConnectedAccountStatus.Active && account.OwnershipVerifiedAt != null), ct);
+        // The queue completes in a transaction. Serialize evidence writes with repository removal.
+        var repositories = await database.Repositories.FromSqlInterpolated($"""
+            SELECT repository.* FROM "Repositories" repository
+            WHERE repository."Id" = {lease.ResourceId}
+              AND repository."CandidateProfileId" = {lease.CandidateProfileId}
+              AND repository."IncludedForAnalysis"
+              AND repository."ScanStatus" <> 'AccessLost'
+              AND EXISTS (SELECT 1 FROM "ConnectedAccounts" account
+                          WHERE account."Id" = repository."ConnectedAccountId"
+                            AND account."Status" = 'Active' AND account."OwnershipVerifiedAt" IS NOT NULL)
+            FOR UPDATE OF repository
+            """).ToListAsync(ct);
+        var repository = repositories.SingleOrDefault();
         if (repository is null) return;
         var identity = $"{repository.Id}:{result.RevisionSha}:{result.ExtractionVersion}:{result.AnalysisPolicyVersion}";
         var existing = await database.RepositoryAnalyses.AsNoTracking().SingleOrDefaultAsync(item => item.ScanIdentity == identity, ct);

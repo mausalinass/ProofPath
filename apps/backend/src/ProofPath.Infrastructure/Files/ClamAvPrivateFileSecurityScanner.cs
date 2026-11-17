@@ -38,17 +38,21 @@ public sealed class ClamAvPrivateFileSecurityScanner(IConfiguration configuratio
             await stream.FlushAsync(deadline.Token);
 
             var responseBuffer = new byte[4096];
-            var bytesRead = await stream.ReadAsync(responseBuffer, deadline.Token);
-            var response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead).TrimEnd('\0', '\r', '\n');
-            if (response.EndsWith("OK", StringComparison.OrdinalIgnoreCase)) return;
-            if (response.Contains("FOUND", StringComparison.OrdinalIgnoreCase))
+            var received = 0;
+            var terminator = -1;
+            while (received < responseBuffer.Length && terminator < 0)
             {
-                var marker = response.LastIndexOf(" FOUND", StringComparison.OrdinalIgnoreCase);
-                var separator = response.IndexOf(':');
-                var signature = separator >= 0 && marker > separator ? response[(separator + 1)..marker].Trim() : "detected";
-                throw new UnsafePrivateFileException(signature);
+                var read = await stream.ReadAsync(responseBuffer.AsMemory(received), deadline.Token);
+                if (read == 0) break;
+                terminator = Array.IndexOf(responseBuffer, (byte)0, received, read);
+                received += read;
             }
-            throw new PrivateFileSecurityUnavailableException($"ClamAV returned an unexpected response: {response}");
+            if (terminator < 0) throw new PrivateFileSecurityUnavailableException("ClamAV did not return a complete verdict.");
+            var response = Encoding.UTF8.GetString(responseBuffer, 0, terminator);
+            if (response.Equals("stream: OK", StringComparison.Ordinal)) return;
+            if (response.StartsWith("stream: ", StringComparison.Ordinal) && response.EndsWith(" FOUND", StringComparison.Ordinal))
+                throw new UnsafePrivateFileException(response["stream: ".Length..^" FOUND".Length]);
+            throw new PrivateFileSecurityUnavailableException("ClamAV returned an unexpected verdict.");
         }
         catch (UnsafePrivateFileException) { throw; }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)

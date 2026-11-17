@@ -31,6 +31,6 @@ public sealed class ResumeAnalysisHandler(IResumeInputReader inputs, IPrivateFil
         }
         result = result with { Draft = result.Draft with { Behaviors = behaviors.Distinct().ToArray() } };
         return new AnalysisOutput(ResumeJson.Serialize(new ResumeAnalysisResult(source, result.Draft, result.Model,
-            result.InputTokens, result.OutputTokens, result.DurationMs)), source.Warnings.Length > 0);
+            result.InputTokens, result.OutputTokens, result.DurationMs, PromptVersion: "resume-prompt-v2")), source.Warnings.Length > 0);
     }
 }

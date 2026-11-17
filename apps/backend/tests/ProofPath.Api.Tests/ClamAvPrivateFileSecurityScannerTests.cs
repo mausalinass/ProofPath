@@ -37,7 +37,9 @@ public sealed class ClamAvPrivateFileSecurityScannerTests
                 await received.WriteAsync(chunk);
             }
             Assert.Equal("resume", Encoding.UTF8.GetString(received.ToArray()));
-            await stream.WriteAsync(Encoding.UTF8.GetBytes(reply));
+            await stream.WriteAsync("stream: "u8.ToArray());
+            await Task.Delay(20);
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(reply["stream: ".Length..]));
         });
         try
         {

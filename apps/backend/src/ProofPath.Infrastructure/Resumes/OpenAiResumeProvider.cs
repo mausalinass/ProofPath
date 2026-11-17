@@ -29,8 +29,8 @@ public sealed class OpenAiResumeProvider(HttpClient client, IConfiguration confi
         var key = configuration["OpenAI:ApiKey"];
         if (string.IsNullOrWhiteSpace(key)) throw new AnalysisFailure("PROVIDER_NOT_CONFIGURED", true);
         if (circuit.IsOpen) throw new AnalysisFailure("PROVIDER_CIRCUIT_OPEN", true);
-        var model = configuration["OpenAI:Model"] ?? "gpt-6-astra";
-        var effort = configuration["OpenAI:ReasoningEffort"] ?? "medium";
+        var model = configuration["OpenAI:Model"] ?? OpenAiExtractionDefaults.Model;
+        var effort = configuration["OpenAI:ReasoningEffort"] ?? OpenAiExtractionDefaults.ReasoningEffort;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(configuration.GetValue("OpenAI:TimeoutSeconds", 150)));
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
@@ -46,7 +46,8 @@ public sealed class OpenAiResumeProvider(HttpClient client, IConfiguration confi
                 "Every value in a fact must be copied verbatim from its source block; unknown fields are null. Dates remain original text. " +
                 "Name means role for Experience, degree for Education, project name for Project, credential name for Credential. " +
                 "Do not infer dates, years, proficiency, scores, personality, demographics, hiring likelihood or behavioral traits. " +
-                "Each item needs an exact quote and sourceBlockId. Skills retain their original term and context. " +
+                "For each item copy sourceBlockId and a contiguous, case-sensitive quote from that block. " +
+                "Use a quote containing the skill term or behavioral statement. Copy skill terms as written. " +
                 "Behaviors must describe explicit professional statements and use only the supplied theme keys. " +
                 "Omit unsupported behavioral interpretations. Do not transform project duration into employment. " +
                 "Never include contact details, addresses, email, phone numbers or sensitive personal attributes. " +
@@ -81,7 +82,8 @@ public sealed class OpenAiResumeProvider(HttpClient client, IConfiguration confi
             var draft = ResumeJson.Read<ResumeDraft>(content);
             ResumeValidation.Validate(draft with { Behaviors = [] }, source, machine: true);
             var usage = root.GetProperty("usage"); circuit.Success();
-            return new LlmResumeResult(draft, model, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
+            var reportedModel = root.TryGetProperty("model", out var responseModel) ? responseModel.GetString() ?? model : model;
+            return new LlmResumeResult(draft, reportedModel, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_TIMEOUT", true); }
         catch (HttpRequestException) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_UNAVAILABLE", true); }
