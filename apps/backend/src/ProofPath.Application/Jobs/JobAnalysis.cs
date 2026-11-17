@@ -28,7 +28,8 @@ public static class JobRequirementValidation
         foreach (var item in draft.Requirements)
         {
             if (item is null) Fail();
-            if (string.IsNullOrWhiteSpace(item.SourceBlockId) || !blocks.TryGetValue(item.SourceBlockId, out var block)) Fail();
+            if (string.IsNullOrWhiteSpace(item.SourceBlockId)) Fail();
+            if (!blocks.TryGetValue(item.SourceBlockId, out var block)) Fail();
             if (string.IsNullOrWhiteSpace(item.Key) || !keys.Add(item.Key) ||
                 string.IsNullOrWhiteSpace(item.OriginalWording) || item.OriginalWording.Length > 4000 ||
                 string.IsNullOrWhiteSpace(item.Quote) || !block.Contains(item.Quote, StringComparison.Ordinal) ||

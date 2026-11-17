@@ -59,7 +59,9 @@ public sealed class OpenAiJobRequirementProvider(HttpClient client, IConfigurati
             if (contents.Any(item => item.GetProperty("type").GetString() == "refusal")) throw new AnalysisFailure("EXTRACTION_REFUSED", false);
             var text = string.Concat(contents.Where(item => item.GetProperty("type").GetString() == "output_text").Select(item => item.GetProperty("text").GetString()));
             var draft = ResumeJson.Read<JobRequirementDraftSet>(text); JobRequirementValidation.Validate(draft, source, machine: true);
-            var usage = root.GetProperty("usage"); circuit.Success(); return new(draft, model, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
+            var usage = root.GetProperty("usage"); circuit.Success();
+            var reportedModel = root.TryGetProperty("model", out var responseModel) ? responseModel.GetString() ?? model : model;
+            return new(draft, reportedModel, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_TIMEOUT", true); }
         catch (HttpRequestException) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_UNAVAILABLE", true); }

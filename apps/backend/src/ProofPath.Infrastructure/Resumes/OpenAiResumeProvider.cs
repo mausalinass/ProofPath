@@ -82,7 +82,8 @@ public sealed class OpenAiResumeProvider(HttpClient client, IConfiguration confi
             var draft = ResumeJson.Read<ResumeDraft>(content);
             ResumeValidation.Validate(draft with { Behaviors = [] }, source, machine: true);
             var usage = root.GetProperty("usage"); circuit.Success();
-            return new LlmResumeResult(draft, model, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
+            var reportedModel = root.TryGetProperty("model", out var responseModel) ? responseModel.GetString() ?? model : model;
+            return new LlmResumeResult(draft, reportedModel, usage.GetProperty("input_tokens").GetInt32(), usage.GetProperty("output_tokens").GetInt32(), timer.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_TIMEOUT", true); }
         catch (HttpRequestException) { circuit.Failure(); throw new AnalysisFailure("PROVIDER_UNAVAILABLE", true); }
