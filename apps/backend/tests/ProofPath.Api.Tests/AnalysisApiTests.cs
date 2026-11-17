@@ -26,7 +26,9 @@ public sealed class AnalysisApiTests(ApiFixture fixture)
         {
             var token = await client.GetFromJsonAsync<JsonElement>("/api/v1/auth/csrf");
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/" + action)
-            { Content = JsonContent.Create(new { email, password = "Api-test.P4ssword!", firstName = "Ada" }) };
+            { Content = JsonContent.Create(action == "register"
+                ? (object)new { email, password = "Api-test.P4ssword!", firstName = "Ada" }
+                : new { email, password = "Api-test.P4ssword!" }) };
             request.Headers.Add("X-CSRF-TOKEN", token.GetProperty("token").GetString());
             return await client.SendAsync(request);
         }

@@ -27,7 +27,11 @@ using Amazon.SimpleEmailV2;
 var builder = WebApplication.CreateBuilder(args);
 ProductionConfiguration.Validate(builder.Configuration, builder.Environment);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
-builder.Services.AddDbContext<ProofPathDbContext>(options => options.UseNpgsql(DatabaseConfiguration.Resolve(builder.Configuration)));
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<DatabaseTenantContext>();
+builder.Services.AddDbContext<ProofPathDbContext>((services, options) =>
+    options.UseNpgsql(DatabaseConfiguration.Resolve(builder.Configuration))
+        .AddInterceptors(services.GetRequiredService<DatabaseTenantContext>()));
 builder.Services.AddHealthChecks().AddDbContextCheck<ProofPathDbContext>("postgres");
 builder.Services.AddDataProtection()
     .SetApplicationName("ProofPath")
@@ -91,7 +95,11 @@ builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddCooki
 });
 builder.Services.AddAuthorization();
 builder.Services.AddProblemDetails();
-builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.SerializerOptions.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow;
+});
 builder.Services.AddScoped<ICandidateProfileStore, CandidateProfileStore>();
 builder.Services.AddScoped<CandidateProfileService>();
 builder.Services.AddScoped<IAnalysisQueue, PostgresAnalysisQueue>();

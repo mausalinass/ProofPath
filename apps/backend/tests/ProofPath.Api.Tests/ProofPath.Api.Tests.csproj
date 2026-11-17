@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProofPath.Api\ProofPath.Api.csproj" />
     <ProjectReference Include="..\..\src\ProofPath.Worker\ProofPath.Worker.csproj" />
+    <None Include="..\..\..\..\infra\postgres-runtime-security.sql" Link="postgres-runtime-security.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

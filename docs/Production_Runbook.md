@@ -60,6 +60,18 @@ If `/health/ready` is healthy but `/api/v1/auth/csrf` returns HTTP 500 with an a
 
 ## PostgreSQL readiness recovery after password rotation
 
+When ECS uses the restricted database roles, its credentials are the `DatabaseApiPassword` and `DatabaseWorkerPassword` fields of the environment's application secret. Check the active task definitions before following the master-password recovery below. With restricted roles, investigate the changed credential for the affected service and verify it with a read-only connection, then refresh only that service. Use a separate migration task with the RDS-managed credential for migrations.
+
+### Roll out restricted database roles
+
+1. Apply EF migrations with the migration task. Run `infra/postgres-runtime-security.sql` with `psql` as the schema owner against the intended database. The script adds policies and grants in a transaction and does not change application rows.
+2. Provision separate `proofpath_api` and `proofpath_worker` logins. Grant only `proofpath_api_runtime` and `proofpath_worker_runtime`, respectively. The logins must have no ownership, administrative privileges or RLS bypass. Store independent passwords in Secrets Manager without logging values.
+3. Verify the connections from the ECS network. PostgreSQL must report RLS active for the API role, zero visible tenant rows with no authenticated context, and denial of access to Identity tables for the Worker role. Verify the Worker can claim and finish a synthetic analysis.
+4. When updating the application stack, use `RestrictedDatabaseRoles=true` to reference the runtime passwords. Keep the previous API and Worker task definitions available, and verify that ECS reports the intended revisions after stabilizing. Compare readiness, authentication, own-record reads, foreign-record denials and Worker completion using two synthetic accounts.
+5. If health or an authorized flow regresses, redeploy the prior task definitions and verify readiness and the Worker. Preserve the RLS policies and data while diagnosing. Restart the affected service after a runtime password change because ECS resolves the application secret only at startup.
+
+### Recover a task that uses the managed RDS credential
+
 RDS manages and rotates the master password in Secrets Manager. ECS resolves `Database__Password` only when a task starts; an already-running API or Worker does not receive a later secret version automatically. If `/health/live` succeeds but `/health/ready` reports PostgreSQL unhealthy after a managed rotation, compare the running task start times with the secret's `LastChangedDate` without retrieving the secret value.
 
 Before changing anything, verify that RDS is `available`, the RDS and ECS tasks use the expected VPC and subnets, the database security group allows PostgreSQL from the ECS task security group, DNS is enabled, and both task definitions reference the managed RDS secret. Prove current connectivity with the existing migration task definition and network configuration; do not print or fetch the password:
@@ -67,7 +79,7 @@ Before changing anything, verify that RDS is `available`, the RDS and ECS tasks 
 ```bash
 aws ecs run-task \
   --cluster "$CLUSTER" \
-  --task-definition "$API_TASK_DEFINITION" \
+  --task-definition "$MIGRATION_TASK_DEFINITION" \
   --launch-type FARGATE \
   --network-configuration "$NETWORK_CONFIGURATION" \
   --overrides '{"containerOverrides":[{"name":"api","command":["dotnet","ProofPath.Api.dll","--migrate"]}]}'

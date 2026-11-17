@@ -98,6 +98,33 @@ public sealed class Sprint1Tests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task UnverifiedEmailIsOnlyDisclosedAfterCorrectPassword()
+    {
+        using var app = fixture.Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Auth:RequireConfirmedEmail"] = "true",
+                    ["Frontend:PublicUrl"] = "http://localhost:5173"
+                })));
+        using var client = app.CreateClient();
+        var email = Email();
+        using var registration = await Write(client, HttpMethod.Post, "/api/v1/auth/register",
+            new { email, password = Password, firstName = "Ada" });
+        Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
+
+        using var invalid = await Write(client, HttpMethod.Post, "/api/v1/auth/login",
+            new { email, password = "Wrong-fixture-password!" });
+        Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+
+        using var unverified = await Write(client, HttpMethod.Post, "/api/v1/auth/login",
+            new { email, password = Password });
+        Assert.Equal(HttpStatusCode.Forbidden, unverified.StatusCode);
+        var response = await unverified.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("EMAIL_NOT_VERIFIED", response.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task AnonymousCannotReadWorkspace()
     {
         using var client = fixture.Client();
