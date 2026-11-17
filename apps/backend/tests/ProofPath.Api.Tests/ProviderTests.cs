@@ -26,13 +26,13 @@ public sealed class ProviderTests
         Assert.Equal("PROVIDER_NOT_CONFIGURED", error.Code); Assert.True(error.Retryable);
     }
     [Fact]
-    public async Task UsesRequestedModelStructuredOutputAndNoResponseStorage()
+    public async Task UsesLunaByDefaultWithStructuredOutputAndNoResponseStorage()
     {
         using var http = new HttpClient(new Handler(async request =>
         {
             Assert.Equal("https://api.openai.com/v1/responses", request.RequestUri!.ToString());
             var body = await request.Content!.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal("gpt-6-astra", body.GetProperty("model").GetString());
+            Assert.Equal("gpt-6-luna", body.GetProperty("model").GetString());
             Assert.Equal("medium", body.GetProperty("reasoning").GetProperty("effort").GetString());
             Assert.False(body.GetProperty("store").GetBoolean());
             Assert.True(body.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());

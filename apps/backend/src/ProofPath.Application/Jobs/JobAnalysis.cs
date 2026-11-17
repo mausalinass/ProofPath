@@ -28,7 +28,7 @@ public static class JobRequirementValidation
         foreach (var item in draft.Requirements)
         {
             if (item is null) Fail();
-            if (!blocks.TryGetValue(item.SourceBlockId, out var block)) Fail();
+            if (string.IsNullOrWhiteSpace(item.SourceBlockId) || !blocks.TryGetValue(item.SourceBlockId, out var block)) Fail();
             if (string.IsNullOrWhiteSpace(item.Key) || !keys.Add(item.Key) ||
                 string.IsNullOrWhiteSpace(item.OriginalWording) || item.OriginalWording.Length > 4000 ||
                 string.IsNullOrWhiteSpace(item.Quote) || !block.Contains(item.Quote, StringComparison.Ordinal) ||
@@ -65,7 +65,8 @@ public sealed class JobAnalysisHandler(IJobInputReader inputs, IJobRequirementPr
         JobRequirementValidation.Validate(result.Draft, source, machine: true);
         var normalized = await normalizer.NormalizeAsync(result.Draft, ct);
         JobRequirementValidation.Validate(normalized, source, machine: true);
-        var analysis = new JobAnalysisResult(source, normalized, result.Model, result.InputTokens, result.OutputTokens, result.DurationMs);
+        var analysis = new JobAnalysisResult(source, normalized, result.Model, result.InputTokens, result.OutputTokens,
+            result.DurationMs, PromptVersion: "job-prompt-v2");
         return new(ResumeJson.Serialize(analysis), source.Warnings.Length > 0);
     }
 }
