@@ -15,7 +15,8 @@ public static class ResumeValidation
         var blocks = source.Blocks.ToDictionary(block => block.Id, block => block.Text);
         void Ground(string id, string quote)
         {
-            if (string.IsNullOrWhiteSpace(quote) || !blocks.TryGetValue(id, out var text) || !text.Contains(quote, StringComparison.Ordinal)) Fail();
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(quote) ||
+                !blocks.TryGetValue(id, out var text) || !text.Contains(quote, StringComparison.Ordinal)) Fail();
         }
         void Text(string? value, bool required = false)
         {
