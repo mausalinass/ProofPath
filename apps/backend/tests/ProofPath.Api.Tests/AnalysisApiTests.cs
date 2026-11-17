@@ -67,5 +67,18 @@ public sealed class AnalysisApiTests(ApiFixture fixture)
         Assert.Equal(retryId, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid());
         Assert.Equal("Pending", (await first.GetFromJsonAsync<JsonElement>($"/api/v1/analysis-jobs/{retryId}")).GetProperty("state").GetString());
         await Write(first, $"/api/v1/analysis-jobs/{retryId}/cancel");
+
+        const string history = "/api/v1/profile/history/evaluations";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(history)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await first.GetAsync(history + "?limit=0")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await first.GetAsync(history + "?cursor=invalid")).StatusCode);
+        var page = await first.GetFromJsonAsync<JsonElement>(history + "?limit=1");
+        var entry = Assert.Single(page.GetProperty("items").EnumerateArray());
+        Assert.Equal(retryId, entry.GetProperty("id").GetGuid());
+        Assert.False(entry.TryGetProperty("resultJson", out _));
+        var next = history + "?limit=1&cursor=" + page.GetProperty("nextCursor").GetString();
+        var secondPage = await first.GetFromJsonAsync<JsonElement>(next);
+        Assert.Equal(id, Assert.Single(secondPage.GetProperty("items").EnumerateArray()).GetProperty("id").GetGuid());
+        Assert.Empty((await second.GetFromJsonAsync<JsonElement>(next)).GetProperty("items").EnumerateArray());
     }
 }

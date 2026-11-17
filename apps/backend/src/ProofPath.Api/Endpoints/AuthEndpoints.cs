@@ -50,6 +50,10 @@ public static class AuthEndpoints
             if (request.Email.Length > 256 || request.Password.Length > 256)
                 return Results.Problem("Email or password exceeds the allowed length.", statusCode: 400);
 
+            var profile = new ProfileInput(request.FirstName, request.LastName, null, null, null, null);
+            var profileErrors = profile.Validate();
+            if (profileErrors.Count != 0) return Results.ValidationProblem(profileErrors);
+
             var privacyVersion = configuration["Privacy:CurrentVersion"] ?? "2026-10-30";
             var privacyRequired = configuration.GetValue<bool?>("Auth:RequirePrivacyConsent")
                 ?? !(environment.IsDevelopment() || environment.IsEnvironment("Testing"));
@@ -77,7 +81,7 @@ public static class AuthEndpoints
             }
 
             await DatabaseTenantContext.UseNewIdentityAsync(database, user.Id, cancellationToken);
-            await profiles.SaveAsync(user.Id, new ProfileInput(request.FirstName, request.LastName, null, null, null, null), cancellationToken);
+            await profiles.SaveAsync(user.Id, profile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             var confirmationRequired = userManager.Options.SignIn.RequireConfirmedEmail;
             if (confirmationRequired)

@@ -102,6 +102,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 builder.Services.AddScoped<ICandidateProfileStore, CandidateProfileStore>();
 builder.Services.AddScoped<CandidateProfileService>();
+builder.Services.AddScoped<CandidateHistory>();
 builder.Services.AddScoped<IAnalysisQueue, PostgresAnalysisQueue>();
 builder.Services.AddResumeModule(builder.Configuration, builder.Environment.EnvironmentName, builder.Environment.ContentRootPath);
 builder.Services.AddGitHubModule(builder.Configuration);
@@ -201,6 +202,7 @@ app.MapHealthChecks("/health", HealthResponse.Ready);
 app.MapAuthEndpoints();
 app.MapAuthEndpoints("/api/v1/auth");
 app.MapCandidateEndpoints();
+app.MapHistoryEndpoints();
 app.MapAnalysisEndpoints();
 app.MapResumeEndpoints();
 app.MapGitHubEndpoints();

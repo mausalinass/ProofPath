@@ -208,6 +208,8 @@ public sealed class Sprint1Tests(ApiFixture fixture)
         var (client, email) = await User(); using (client)
         {
             var initial = await client.GetFromJsonAsync<ProfileView>("/api/v1/profile"); Assert.NotNull(initial);
+            using var oversized = await Write(client, HttpMethod.Put, "/api/v1/profile", new { headline = new string('x', 201) });
+            Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
             Assert.Equal("Ada", initial.FirstName);
             Assert.Equal(HttpStatusCode.OK, (await Write(client, HttpMethod.Put, "/api/v1/profile",
                 new { firstName = " Ada ", lastName = "Lovelace", headline = "Engineer", location = "Remote", workAuthorization = "Context", educationSummary = "CS" })).StatusCode);
