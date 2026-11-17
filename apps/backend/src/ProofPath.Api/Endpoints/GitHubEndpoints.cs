@@ -49,7 +49,15 @@ public static class GitHubEndpoints
         group.MapGet("/repositories", (bool? sync, ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
             workspace.RepositoriesAsync(UserId(user), sync == true, ct));
         group.MapPut("/repositories/selection", async (SelectionRequest request, ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
-        { await workspace.SaveSelectionAsync(UserId(user), request.RepositoryIds, ct); return Results.NoContent(); });
+        {
+            if (request.RepositoryIds is null) return Results.BadRequest();
+            await workspace.SaveSelectionAsync(UserId(user), request.RepositoryIds, ct);
+            return Results.NoContent();
+        });
+        group.MapPut("/repositories/selection/{repositoryId:long}", async (long repositoryId, ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
+        { await workspace.SetRepositorySelectionAsync(UserId(user), repositoryId, include: true, ct); return Results.NoContent(); });
+        group.MapDelete("/repositories/selection/{repositoryId:long}", async (long repositoryId, ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
+        { await workspace.SetRepositorySelectionAsync(UserId(user), repositoryId, include: false, ct); return Results.NoContent(); });
         group.MapPost("/scans", async (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) =>
         { var ids = await workspace.ScanAsync(UserId(user), ct); return Results.Accepted(value: new { analysisJobIds = ids }); });
         group.MapGet("/evidence", (ClaimsPrincipal user, IGitHubWorkspace workspace, CancellationToken ct) => workspace.EvidenceAsync(UserId(user), ct));
@@ -69,6 +77,7 @@ public static class GitHubEndpoints
         "GITHUB_PERMISSIONS_INVALID" => "The GitHub App must have read-only Contents and Metadata permissions.",
         "REPOSITORY_LIMIT_EXCEEDED" => "Select no more than five repositories.",
         "REPOSITORY_NOT_AUTHORIZED" => "One or more repositories are outside the GitHub installation.",
+        "REPOSITORY_NOT_FOUND" => "The repository is not available in your GitHub installation.",
         "REPOSITORY_SELECTION_REQUIRED" => "Select at least one repository before analysis.",
         _ => "GitHub could not complete this request. Retry or reconnect the source."
     };

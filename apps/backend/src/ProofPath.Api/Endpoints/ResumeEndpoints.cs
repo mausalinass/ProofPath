@@ -15,7 +15,8 @@ public static class ResumeEndpoints
         {
             try { return await next(context); }
             catch (ResumeProblem problem) { return Results.Problem(Message(problem.Code), statusCode: problem.Status, extensions: new Dictionary<string, object?> { ["code"] = problem.Code }); }
-            catch (InvalidDataException) { return Results.Problem("Invalid upload or file exceeds 10 MB.", statusCode: 400); }
+            catch (InvalidDataException) { return Results.Problem("Choose one PDF or DOCX file up to 10 MB.", statusCode: 400,
+                extensions: new Dictionary<string, object?> { ["code"] = "INVALID_MULTIPART" }); }
         });
         group.MapGet("/", (ClaimsPrincipal user, IResumeWorkspace workspace, CancellationToken ct) => workspace.ListAsync(UserId(user), ct));
         group.MapPost("/", async (HttpRequest request, ClaimsPrincipal user, IResumeWorkspace workspace, CancellationToken ct) =>
@@ -63,6 +64,15 @@ public static class ResumeEndpoints
     private static string UserId(ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier)!;
     private static string Message(string code) => code switch
     {
+        "MULTIPART_REQUIRED" or "SINGLE_FILE_REQUIRED" => "Send exactly one PDF or DOCX file.",
+        "EMPTY_FILE" => "The file is empty. Choose a PDF or DOCX with readable text.",
+        "UNSUPPORTED_FILE_TYPE" => "Choose a PDF or DOCX whose extension and file format match.",
+        "INVALID_PDF" => "This PDF is damaged or incomplete. Export a fresh, text-based PDF and try again.",
+        "INVALID_DOCX" => "This Word document is invalid. Save a fresh copy as a .docx file and try again.",
+        "ACTIVE_OR_ENCRYPTED_PDF" => "Export a PDF without password protection, scripts or embedded files.",
+        "UNSAFE_DOCX_CONTAINER" => "Save a DOCX without macros, embedded objects or external templates.",
+        "MALWARE_DETECTED" => "The security scan rejected this file. Export a fresh copy from a trusted source.",
+        "FILE_SECURITY_UNAVAILABLE" => "The security scanner is temporarily unavailable. Try again shortly.",
         "FILE_TOO_LARGE" => "Choose a rÃ©sumÃ© smaller than 10 MB.",
         "PROFILE_REQUIRED" => "Complete your professional profile before uploading a rÃ©sumÃ©.",
         "REVIEW_CONFLICT" => "This review changed in another tab. Reload before saving.",

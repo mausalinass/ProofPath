@@ -153,6 +153,8 @@ Progress 2026-11-09: the three frontend findings from staging validation section
 
 Progress 2026-11-11: [`22bea18` staging validation](Final_Staging_Validation.md) records the corrected frontend, browser checks, the timed frontend rollback and the repeated synthetic database restore. The [active `main` ruleset](https://github.com/mausalinass/ProofPath/rules/27049708) requires a PR and four CI checks. The final decision remains on hold pending an authenticated staging run, recovery/rotation follow-up and owner production approvals.
 
+The [Phase 3 security record](Phase_3_Security_Hardening.md) tracks additional database, API and CI controls and the remaining launch blockers.
+
 Exit criterion: a specific immutable commit is approved as the production release candidate.
 
 ## 6. Approve production launch

@@ -10,16 +10,17 @@ public sealed class ResumeWorkspaceService(IResumePersistence database, IPrivate
 {
     public async Task<ResumeUploadResult> UploadAsync(string userId, string fileName, string contentType, byte[] content, CancellationToken ct)
     {
-        extractor.Validate(content, fileName, contentType);
+        var safeName = Path.GetFileName(fileName.Replace('\\', '/'));
+        var verifiedContentType = extractor.Validate(content, safeName, contentType);
         try { await securityScanner.ScanAsync(content, ct); }
         catch (UnsafePrivateFileException) { throw new ResumeProblem("MALWARE_DETECTED", 422); }
         catch (PrivateFileSecurityUnavailableException) { throw new ResumeProblem("FILE_SECURITY_UNAVAILABLE", 503); }
         var resume = new Resume
         {
             Id = Guid.NewGuid(),
-            FileName = Path.GetFileName(fileName.Replace('\\', '/')),
+            FileName = safeName,
             StorageKey = Guid.NewGuid().ToString("N"),
-            ContentType = contentType,
+            ContentType = verifiedContentType,
             CreatedAt = DateTime.UtcNow
         };
         // Persist the key before touching object storage. Interrupted uploads remain discoverable for cleanup.

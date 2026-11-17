@@ -33,7 +33,7 @@ public sealed class ResumeProblem(string code, int status = 400) : Exception(cod
 }
 public interface IDocumentTextExtractor
 {
-    void Validate(byte[] content, string fileName, string contentType);
+    string Validate(byte[] content, string fileName, string contentType);
     DocumentText Extract(byte[] content, string contentType, CancellationToken ct);
 }
 public interface ILlmProvider

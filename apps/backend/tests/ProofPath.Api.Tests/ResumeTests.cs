@@ -56,8 +56,33 @@ public sealed class DocumentParserTests
     {
         var pdf = parser.Extract(ResumeFixtures.Pdf(), DocumentTextExtractor.Pdf, default);
         Assert.Contains("Engineer", pdf.Blocks[0].Text); Assert.Equal(1, pdf.Blocks[0].Page);
+        Assert.Empty(pdf.Warnings);
         var docx = parser.Extract(ResumeFixtures.Docx(), DocumentTextExtractor.Docx, default);
         Assert.Equal(ResumeFixtures.Text, docx.Blocks[0].Text); Assert.Contains("p1", docx.Blocks[0].Id);
+    }
+    [Theory]
+    [InlineData("")]
+    [InlineData("application/octet-stream")]
+    public void GenericBrowserMimeRequiresValidBytesAndCanonicalizesBothFormats(string mime)
+    {
+        Assert.Equal(DocumentTextExtractor.Pdf, parser.Validate(ResumeFixtures.Pdf(), "resume.PDF", mime));
+        Assert.Equal(DocumentTextExtractor.Docx, parser.Validate(ResumeFixtures.Docx(), "resume.DOCX", mime));
+        Assert.Equal("INVALID_PDF", Assert.Throws<ResumeProblem>(() =>
+            parser.Validate(ResumeFixtures.Docx(), "wrong.pdf", mime)).Code);
+        Assert.Equal("INVALID_DOCX", Assert.Throws<ResumeProblem>(() =>
+            parser.Validate(ResumeFixtures.Pdf(), "wrong.docx", mime)).Code);
+    }
+
+    [Fact]
+    public void RejectsFakePdfFooterAndEncodedActiveContent()
+    {
+        var fake = "%PDF-1.4\nstartxref\n999999\n%%EOF"u8.ToArray();
+        Assert.Equal("INVALID_PDF", Assert.Throws<ResumeProblem>(() =>
+            parser.Validate(fake, "resume.pdf", DocumentTextExtractor.Pdf)).Code);
+        var encoded = Encoding.Latin1.GetBytes(
+            Encoding.Latin1.GetString(ResumeFixtures.Pdf()).Replace("%%EOF", "%%EOF\n/J#53"));
+        Assert.Equal("ACTIVE_OR_ENCRYPTED_PDF", Assert.Throws<ResumeProblem>(() =>
+            parser.Validate(encoded, "resume.pdf", DocumentTextExtractor.Pdf)).Code);
     }
     [Fact]
     public void ImageOnlyPdfFailsWithActionableCode()
@@ -113,6 +138,27 @@ public sealed class ResumeWorkflowTests(ApiFixture fixture) : IAsyncLifetime
     {
         var form = new MultipartFormDataContent(); var part = new ByteArrayContent(bytes ?? ResumeFixtures.Docx());
         part.Headers.ContentType = new MediaTypeHeaderValue(DocumentTextExtractor.Docx); form.Add(part, "file", "resume.docx"); return form;
+    }
+    [Theory]
+    [InlineData("Resume.pdf", DocumentTextExtractor.Pdf)]
+    [InlineData("Resume.docx", DocumentTextExtractor.Docx)]
+    public async Task GenericBrowserUploadAnalyzesAndDownloadsWithCanonicalType(string filename, string mime)
+    {
+        using var client = await User();
+        var bytes = mime == DocumentTextExtractor.Pdf ? ResumeFixtures.Pdf() : ResumeFixtures.Docx();
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "file", filename);
+        using var response = await Write(client, HttpMethod.Post, "/api/v1/resumes/", form);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var upload = (await response.Content.ReadFromJsonAsync<ResumeUploadResult>())!;
+        await Complete(upload);
+        var status = await client.GetFromJsonAsync<AnalysisStatus>($"/api/v1/analysis-jobs/{upload.AnalysisJobId}", ResumeJson.Options);
+        Assert.Equal(AnalysisState.Completed, status!.State);
+        using var download = await client.GetAsync($"/api/v1/resumes/{upload.Id}/download");
+        Assert.Equal(mime, download.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(bytes, await download.Content.ReadAsByteArrayAsync());
     }
     private static async Task<ResumeUploadResult> Upload(HttpClient client)
     {

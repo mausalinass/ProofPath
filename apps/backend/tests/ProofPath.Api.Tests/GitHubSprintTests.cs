@@ -321,6 +321,18 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
             var rescanned = (await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"))!;
             Assert.Equal(evidence!.Select(item => item.Id).Order(), rescanned.Select(item => item.Id).Order());
         }
+        const string selection = "/api/v1/github/repositories/selection/";
+        Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Delete, selection + "1", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Delete, selection + "1", new { })).StatusCode);
+        var remaining = (await client.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories"))!;
+        Assert.Equal(2L, Assert.Single(remaining, item => item.IncludedForAnalysis).GitHubId);
+        var updatedEvidence = (await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"))!;
+        var removedRepo = remaining.Single(item => item.GitHubId == 1);
+        Assert.Contains(updatedEvidence, item => item.RepositoryId == removedRepo.Id);
+        Assert.All(updatedEvidence.Where(item => item.RepositoryId == removedRepo.Id), item => Assert.Equal("Inactive", item.Lifecycle));
+        Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Put, selection + "1", new { })).StatusCode);
+        var restored = (await client.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories"))!;
+        Assert.Equal(new[] { 1L, 2L }, restored.Where(item => item.IncludedForAnalysis).Select(item => item.GitHubId).Order());
         using var other = await User(); Assert.Empty((await other.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"))!);
         Assert.Equal(HttpStatusCode.NoContent, (await Write(client, HttpMethod.Post, "/api/v1/github/disconnect", new { })).StatusCode);
         evidence = await client.GetFromJsonAsync<GitHubEvidenceView[]>("/api/v1/github/evidence"); Assert.All(evidence!, item => Assert.Equal("Stale", item.Lifecycle));
@@ -380,5 +392,14 @@ public sealed class GitHubSprintTests(ApiFixture fixture)
         Assert.Empty(aliceRepos.Select(repo => repo.GitHubId).Intersect(bobRepos.Select(repo => repo.GitHubId)));
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(bob, HttpMethod.Put, "/api/v1/github/repositories/selection",
             new { repositoryIds = new[] { aliceRepos[0].GitHubId } })).StatusCode);
+        var foreign = $"/api/v1/github/repositories/selection/{aliceRepos[0].GitHubId}";
+        Assert.Equal(HttpStatusCode.NotFound, (await Write(bob, HttpMethod.Put, foreign, new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Write(bob, HttpMethod.Delete, foreign, new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await alice.PutAsync(foreign, null)).StatusCode);
+        var results = await Task.WhenAll(aliceRepos.Take(2).Select(repo =>
+            Write(alice, HttpMethod.Put, $"/api/v1/github/repositories/selection/{repo.GitHubId}", new { })));
+        Assert.All(results, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
+        var selected = (await alice.GetFromJsonAsync<RepositoryView[]>("/api/v1/github/repositories"))!;
+        Assert.Equal(2, selected.Count(item => item.IncludedForAnalysis));
     }
 }
